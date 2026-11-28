@@ -63,6 +63,11 @@
     <display_length compare="ge">768</display_length>
   </requires>
   <releases>
+    <release version="0.7.0-beta.1" type="development" date="2026-11-27">
+      <description>
+        <p>Prerelease adding browser-based SSO/OIDC sign-in for desktop (Vaultwarden 1.37.4+ or Bitwarden) and the gv command-line client.</p>
+      </description>
+    </release>
     <release version="0.6.1" date="2026-11-24">
       <description>
         <p>GoVault is also built for Intel Macs.</p>
