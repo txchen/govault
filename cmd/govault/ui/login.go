@@ -20,8 +20,55 @@ func LoginView(cx *core.Scope, m *AppModel) core.Node {
 		if prompt := m.TwoFactor.Get(); prompt != nil {
 			return TwoFactorView(cx, m, prompt)
 		}
+		if m.SSOWaiting.Get() {
+			return ssoWaitingView(cx, m)
+		}
 		return signInView(cx, m)
 	})
+}
+
+func ssoWaitingView(cx *core.Scope, m *AppModel) core.Node {
+	return authScreen("sso-waiting-screen", []core.Node{
+		core.View{
+			Class: "items-center gap-2.5 pb-1",
+			Children: []core.Node{
+				core.View{
+					Class: "w-[56px] h-[56px] rounded-[16px] items-center justify-center bg-gv-fill border border-gv-line",
+					Style: core.Style{BorderCurve: core.BorderCurveContinuous},
+					Children: []core.Node{
+						icon(lucide.Globe(), 24, "text-gv-accent"),
+					},
+				},
+				core.Text{Class: "mt-1.5 text-[19px] font-semibold text-gv-fg text-center", Content: locales.SsoWaitingTitle(cx)},
+				core.Text{
+					Class:   "text-[12.5px] text-gv-fg2 text-center",
+					Content: locales.SsoWaitingDetail(cx),
+				},
+			},
+		},
+		core.View{
+			Class: "gap-2",
+			Children: []core.Node{
+				ui.Button{
+					TestID:  "sso-reopen",
+					Text:    locales.SsoOpenBrowserAgain(cx),
+					Icon:    lucide.ExternalLink,
+					Variant: ui.ButtonSecondary,
+					Size:    ui.SizeLarge,
+					Style:   core.Style{Width: core.Pct(100)},
+					OnPress: func() { m.ReopenSSOBrowser(cx) },
+				},
+				ui.Button{
+					TestID:  "sso-cancel",
+					Text:    locales.Cancel(cx),
+					Variant: ui.ButtonGhost,
+					Size:    ui.SizeLarge,
+					Style:   core.Style{Width: core.Pct(100)},
+					OnPress: m.CancelSSO,
+				},
+			},
+		},
+	}, locales.SignInFootnote(cx))
 }
 
 func signInView(cx *core.Scope, m *AppModel) core.Node {
@@ -91,14 +138,37 @@ func signInView(cx *core.Scope, m *AppModel) core.Node {
 			When: func() bool { return m.LoginError.Get() != "" },
 			Then: func(cx *core.Scope) core.Node { return errorBanner("login-error", m.LoginError.Get) },
 		},
-		ui.Button{
-			TestID:  "login-submit",
-			Text:    locales.SignIn(cx),
-			Variant: ui.ButtonPrimary,
-			Size:    ui.SizeLarge,
-			Busy:    m.LoginBusy.Get,
-			Style:   core.Style{Width: core.Pct(100)},
-			OnPress: m.Login,
+		core.View{
+			Class: "gap-3",
+			Children: []core.Node{
+				ui.Button{
+					TestID:  "login-submit",
+					Text:    locales.SignIn(cx),
+					Variant: ui.ButtonPrimary,
+					Size:    ui.SizeLarge,
+					Busy:    m.LoginBusy.Get,
+					Style:   core.Style{Width: core.Pct(100)},
+					OnPress: m.Login,
+				},
+				core.View{
+					Class: "flex-row items-center gap-2.5",
+					Children: []core.Node{
+						core.View{Class: "flex-1 h-px bg-gv-line"},
+						core.Text{Class: "text-[11px] text-gv-fg3", Content: locales.OrSignInWith(cx)},
+						core.View{Class: "flex-1 h-px bg-gv-line"},
+					},
+				},
+				ui.Button{
+					TestID:   "login-sso",
+					Text:     locales.SignInWithSSO(cx),
+					Icon:     lucide.Globe,
+					Variant:  ui.ButtonSecondary,
+					Size:     ui.SizeLarge,
+					Disabled: m.LoginBusy.Get,
+					Style:    core.Style{Width: core.Pct(100)},
+					OnPress:  func() { m.LoginWithSSO(cx) },
+				},
+			},
 		},
 		core.Show{
 			When: m.CanReturnToUnlock,

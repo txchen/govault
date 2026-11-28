@@ -57,6 +57,14 @@ type TwoFactorLogin struct {
 type TwoFactorChallenge struct {
 	Providers    []TwoFactorProvider
 	ProviderData map[TwoFactorProvider]json.RawMessage
+	// Email is the authoritative account email returned at the top level of
+	// an SSO two-factor challenge by Bitwarden (distinct from the redacted
+	// delivery address inside TwoFactorProviders2["1"]).
+	Email string
+	// SSOEmail2FASessionToken is issued during an SSO login when email
+	// two-factor is available, standing in for a master password hash when
+	// asking the server to email a code.
+	SSOEmail2FASessionToken string
 }
 
 func (c TwoFactorChallenge) Has(p TwoFactorProvider) bool {
@@ -126,7 +134,7 @@ func parseTwoFactorChallenge(body []byte) (*TwoFactorRequiredError, bool) {
 	if err := json.Unmarshal(body, &fields); err != nil {
 		return nil, false
 	}
-	var listRaw, dataRaw, descRaw json.RawMessage
+	var listRaw, dataRaw, descRaw, emailRaw, ssoTokenRaw json.RawMessage
 	for k, v := range fields {
 		switch strings.ToLower(k) {
 		case "twofactorproviders":
@@ -135,6 +143,10 @@ func parseTwoFactorChallenge(body []byte) (*TwoFactorRequiredError, bool) {
 			dataRaw = v
 		case "error_description":
 			descRaw = v
+		case "email":
+			emailRaw = v
+		case "ssoemail2fasessiontoken":
+			ssoTokenRaw = v
 		}
 	}
 	if len(listRaw) == 0 && len(dataRaw) == 0 {
@@ -142,6 +154,8 @@ func parseTwoFactorChallenge(body []byte) (*TwoFactorRequiredError, bool) {
 	}
 
 	ch := TwoFactorChallenge{ProviderData: map[TwoFactorProvider]json.RawMessage{}}
+	_ = json.Unmarshal(emailRaw, &ch.Email)
+	_ = json.Unmarshal(ssoTokenRaw, &ch.SSOEmail2FASessionToken)
 	var data map[string]json.RawMessage
 	if json.Unmarshal(dataRaw, &data) == nil {
 		for k, v := range data {
@@ -185,5 +199,32 @@ func (c *Client) SendEmailTwoFactorLogin(ctx context.Context, email, masterPassw
 		return err
 	}
 	_, err = c.do(ctx, http.MethodPost, "/api/two-factor/send-email-login", "application/json", "", nil, body)
+	return err
+}
+
+// SendEmailTwoFactorLoginSSO asks the server to email a two-step login
+// code during an SSO login, where there is no master password hash.
+// When ssoSessionToken is present (Bitwarden), the request sends the
+// challenge's authoritative email and token; when absent (Vaultwarden), it
+// sends the device-only form because Vaultwarden rejects an email without a
+// masterPasswordHash and resolves the user by device identifier.
+func (c *Client) SendEmailTwoFactorLoginSSO(ctx context.Context, email, ssoSessionToken string) error {
+	payload := struct {
+		Email                   string `json:"email,omitempty"`
+		SSOEmail2FASessionToken string `json:"ssoEmail2faSessionToken,omitempty"`
+		DeviceIdentifier        string `json:"deviceIdentifier"`
+	}{
+		DeviceIdentifier: c.deviceID,
+	}
+	if ssoSessionToken != "" {
+		payload.Email = crypto.NormalizeEmail(email)
+		payload.SSOEmail2FASessionToken = ssoSessionToken
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	headers := map[string]string{"Device-Identifier": c.deviceID}
+	_, err = c.do(ctx, http.MethodPost, "/api/two-factor/send-email-login", "application/json", "", headers, body)
 	return err
 }

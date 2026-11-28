@@ -78,6 +78,16 @@ signIn:
 backToUnlock: Back to Unlock
 signInFootnote: End-to-end encrypted. Your master password never leaves this device.
 signInFieldsRequired: Server URL, email, and master password are required.
+signInWithSSO:
+  message: Sign in with SSO
+  description: The secondary button on the sign-in screen that starts single sign-on in the browser.
+orSignInWith:
+  message: or
+  description: Short divider word between password sign-in and SSO sign-in buttons.
+ssoServerRequired: Server URL is required to sign in with SSO.
+ssoWaitingTitle: Complete sign-in in your browser
+ssoWaitingDetail: Finish single sign-on in the browser window that opened, then return to GoVault.
+ssoOpenBrowserAgain: Open browser again
 togglePasswordVisibility:
   message: Toggle password visibility
   description: What screen readers say of the eye button beside a password field.
@@ -1095,6 +1105,12 @@ errorUnsupportedUpload: The server asked for an attachment upload GoVault does n
 errorServerMismatch: The saved sign-in belongs to a different server than this vault copy. Sign in again.
 errorSignInRequired: Sign in again to sync. Your vault is available offline until then.
 errorDifferentAccount: This signs in to a different account than the vault on this device. To use a different account, log out first.
+errorSSOMasterPasswordRequired: This SSO account does not have a master password yet. Set one in the web vault first.
+errorSSOForcePasswordReset: Your organization requires a master password reset. Reset your master password in the web vault first.
+errorSSOKeyConnectorUnsupported: SSO with Key Connector is not supported yet.
+errorSSOTrustedDeviceUnsupported: SSO with Trusted Device Encryption is not supported yet.
+errorSSOCallbackPortUnavailable: Could not start the local SSO callback listener (ports 8065–8070 are in use).
+errorSSOStateMismatch: The SSO callback could not be verified. Try signing in again.
 errorAccountChanged: The account changed since this was confirmed. Try again.
 errorSnapshotNotUpdated: The server has the change, but the copy on this device could not be updated. Sync to refresh it.
 errorSealedField: This item holds encrypted data GoVault cannot copy to a new key.

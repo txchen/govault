@@ -43,6 +43,12 @@ signIn: 登录
 backToUnlock: 返回解锁
 signInFootnote: 端到端加密。你的主密码绝不会离开此设备。
 signInFieldsRequired: 请填写服务器 URL、电子邮箱和主密码。
+signInWithSSO: 使用 SSO 登录
+orSignInWith: 或
+ssoServerRequired: 使用 SSO 登录需要填写服务器 URL。
+ssoWaitingTitle: 请在浏览器中完成登录
+ssoWaitingDetail: 在已打开的浏览器窗口中完成单点登录，然后返回 GoVault。
+ssoOpenBrowserAgain: 重新打开浏览器
 togglePasswordVisibility: 切换密码显示
 
 # Two-step login
@@ -698,6 +704,12 @@ errorUnsupportedUpload: 服务器要求使用 GoVault 不支持的附件上传�
 errorServerMismatch: 已保存的登录凭据属于与当前密码库副本不同的服务器，请重新登录。
 errorSignInRequired: 请重新登录以进行同步。在此之前，你的密码库可离线使用。
 errorDifferentAccount: 当前登录的账户与此设备上的密码库不匹配。如需切换账户，请先退出登录。
+errorSSOMasterPasswordRequired: 此 SSO 账户尚未设置主密码。请先在网页端密码库中设置主密码。
+errorSSOForcePasswordReset: 您的组织要求重置主密码。请先在网页端密码库中重置主密码。
+errorSSOKeyConnectorUnsupported: 暂不支持搭配 Key Connector 使用 SSO。
+errorSSOTrustedDeviceUnsupported: 暂不支持搭配受信任设备加密使用 SSO。
+errorSSOCallbackPortUnavailable: 无法启动本地 SSO 回调监听（端口 8065–8070 均被占用）。
+errorSSOStateMismatch: 无法验证 SSO 回调状态，请重新尝试登录。
 errorAccountChanged: 自确认以来账户已更改，请重试。
 errorSnapshotNotUpdated: 服务器已保存更改，但无法更新此设备上的副本。请同步以刷新。
 errorSealedField: 此项目包含加密数据，GoVault 无法将其复制到新密钥下。

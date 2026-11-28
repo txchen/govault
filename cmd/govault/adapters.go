@@ -220,7 +220,7 @@ func VerifyMasterPasswordOffline(dataDir, accountID string, password []byte) err
 	if err != nil {
 		return err
 	}
-	masterKey, err := crypto.DeriveMasterKey(password, snap.Email, snap.KDF)
+	masterKey, err := crypto.DeriveKeyFromPassword(password, snap.EffectiveKDFSalt(), snap.KDF)
 	if err != nil {
 		return err
 	}

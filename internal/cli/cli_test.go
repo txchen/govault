@@ -44,7 +44,8 @@ type gvTest struct {
 	tty  bool
 	goos string
 	// stdout, when set, receives standard output instead of the result.
-	stdout io.Writer
+	stdout  io.Writer
+	openURL func(string) error
 }
 
 type result struct {
@@ -83,6 +84,9 @@ func (g *gvTest) run(args ...string) result {
 	}
 	if g.stdout != nil {
 		env.Stdout = g.stdout
+	}
+	if g.openURL != nil {
+		env.OpenURL = g.openURL
 	}
 	code := Run(env)
 	return result{stdout.String(), stderr.String(), code}

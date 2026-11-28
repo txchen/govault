@@ -39,9 +39,13 @@ var (
 	ErrArchiveNotConfirmed     = errors.New("state: the server did not confirm the change; GoVault synced to show where the item is now")
 	ErrPremiumRequired         = errors.New("state: archiving items needs a premium membership")
 	ErrCipherInTrash           = errors.New("state: the item is in Trash")
-	ErrAccountIDUnknown        = errors.New("state: could not confirm your account ID with the server; sync and try again")
-	ErrAccountChanged          = errors.New("state: the account changed since this was confirmed")
-	ErrSnapshotNotUpdated      = errors.New("state: the server has the change, but the local copy could not be updated; sync to refresh it")
+	ErrAccountIDUnknown            = errors.New("state: could not confirm your account ID with the server; sync and try again")
+	ErrAccountChanged              = errors.New("state: the account changed since this was confirmed")
+	ErrSnapshotNotUpdated          = errors.New("state: the server has the change, but the local copy could not be updated; sync to refresh it")
+	ErrSSOMasterPasswordRequired   = errors.New("state: this SSO account has no master password yet; set one in the web vault first")
+	ErrSSOForcePasswordReset       = errors.New("state: your organization requires a master password reset; reset it in the web vault first")
+	ErrSSOKeyConnectorUnsupported  = errors.New("state: SSO with Key Connector is not supported yet")
+	ErrSSOTrustedDeviceUnsupported = errors.New("state: SSO with Trusted Device Encryption is not supported yet")
 )
 
 // LocalCopyError reports a change the server accepted and GoVault now
@@ -310,6 +314,27 @@ type LoginRequest struct {
 	SameAccount *Account
 }
 
+// SSOLoginRequest exchanges an SSO authorization code and PKCE verifier
+// for an authenticated, locked vault ready to be unlocked with the account's
+// master password.
+type SSOLoginRequest struct {
+	ServerURL    string
+	Code         string
+	CodeVerifier string
+	RedirectURI  string
+	// Email is optional; when set, any remembered two-factor token for this
+	// server and email is tried automatically.
+	Email string
+
+	TwoFactorProvider api.TwoFactorProvider
+	TwoFactorCode     string
+	RememberDevice    bool
+
+	// SameAccount, when set, restricts Sign In Again to this account and
+	// its trusted server.
+	SameAccount *Account
+}
+
 // Account is who a vault belongs to: the account ID and the server and
 // email it was signed in with.
 type Account struct {
@@ -337,7 +362,9 @@ type Collection struct {
 type VaultService interface {
 	Status() LockStatus
 	Login(ctx context.Context, req LoginRequest) error
+	LoginSSO(ctx context.Context, req SSOLoginRequest) error
 	SendEmailTwoFactorCode(ctx context.Context, req LoginRequest) error
+	SendEmailTwoFactorCodeSSO(ctx context.Context, serverURL, email, ssoSessionToken string) error
 	ResendNewDeviceOTP(ctx context.Context, req LoginRequest) error
 	UnlockWithPassword(ctx context.Context, masterPassword []byte) error
 	UnlockWithUserKey(ctx context.Context, userKey *crypto.SymmetricKey) error

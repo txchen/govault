@@ -217,6 +217,51 @@ func (c *Client) LoginPasswordWith(ctx context.Context, email, masterPasswordHas
 	return &resp, nil
 }
 
+// SSOLoginOptions are the parameters of an authorization_code grant after
+// the browser SSO callback completes.
+type SSOLoginOptions struct {
+	Code         string
+	CodeVerifier string
+	RedirectURI  string
+	TwoFactor    *TwoFactorLogin
+}
+
+// LoginSSO exchanges an SSO authorization code and PKCE verifier for an
+// access token and refresh token. It returns a *TwoFactorRequiredError
+// when the server asks for two-step verification.
+func (c *Client) LoginSSO(ctx context.Context, opts SSOLoginOptions) (*TokenResponse, error) {
+	form := url.Values{
+		"grant_type":       {"authorization_code"},
+		"code":             {opts.Code},
+		"code_verifier":    {opts.CodeVerifier},
+		"redirect_uri":     {opts.RedirectURI},
+		"scope":            {"api offline_access"},
+		"client_id":        {c.clientID},
+		"deviceIdentifier": {c.deviceID},
+		"deviceName":       {c.deviceName},
+		"deviceType":       {strconv.Itoa(c.deviceType)},
+	}
+	if tf := opts.TwoFactor; tf != nil {
+		form.Set("twoFactorProvider", strconv.Itoa(int(tf.Provider)))
+		form.Set("twoFactorToken", strings.Join(strings.Fields(tf.Token), ""))
+		if tf.Remember {
+			form.Set("twoFactorRemember", "1")
+		} else {
+			form.Set("twoFactorRemember", "0")
+		}
+	}
+
+	raw, err := c.do(ctx, http.MethodPost, "/identity/connect/token", "application/x-www-form-urlencoded", "", nil, []byte(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	var resp TokenResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 // LoginAPIKey exchanges a personal API key for an access token with the
 // client credentials grant. The server issues no refresh token: the same
 // exchange renews the token.

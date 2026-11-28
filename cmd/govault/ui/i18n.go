@@ -227,6 +227,10 @@ func errorText(cx *core.Scope, err error) string {
 		return locales.ErrorRevisionConflict(cx)
 	case errors.Is(err, api.ErrAttachmentTooLarge):
 		return locales.ErrorAttachmentTooLarge(cx)
+	case errors.Is(err, api.ErrSSOCallbackPortUnavailable):
+		return locales.ErrorSSOCallbackPortUnavailable(cx)
+	case errors.Is(err, api.ErrSSOStateMismatch):
+		return locales.ErrorSSOStateMismatch(cx)
 	case errors.Is(err, crypto.ErrInvalidMAC):
 		return locales.IncorrectMasterPassword(cx)
 	case errors.Is(err, state.ErrArchiveUnsupported):
@@ -263,6 +267,14 @@ func errorText(cx *core.Scope, err error) string {
 		return locales.ErrorSignInRequired(cx)
 	case errors.Is(err, state.ErrDifferentAccount):
 		return locales.ErrorDifferentAccount(cx)
+	case errors.Is(err, state.ErrSSOMasterPasswordRequired):
+		return locales.ErrorSSOMasterPasswordRequired(cx)
+	case errors.Is(err, state.ErrSSOForcePasswordReset):
+		return locales.ErrorSSOForcePasswordReset(cx)
+	case errors.Is(err, state.ErrSSOKeyConnectorUnsupported):
+		return locales.ErrorSSOKeyConnectorUnsupported(cx)
+	case errors.Is(err, state.ErrSSOTrustedDeviceUnsupported):
+		return locales.ErrorSSOTrustedDeviceUnsupported(cx)
 	case errors.Is(err, state.ErrAccountChanged):
 		return locales.ErrorAccountChanged(cx)
 	case errors.Is(err, state.ErrSnapshotNotUpdated):

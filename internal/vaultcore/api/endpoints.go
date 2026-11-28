@@ -61,6 +61,20 @@ func NotificationsURL(base string) string {
 	return strings.TrimRight(base, "/") + "/notifications"
 }
 
+// WebVaultURL is where a server's web vault lives: Bitwarden's US and EU
+// clouds serve it on vault.bitwarden.com and vault.bitwarden.eu; any
+// other server serves it at its base URL.
+func WebVaultURL(base string) string {
+	e, err := ResolveEndpoints(base)
+	switch {
+	case err == nil && e.Identity == usCloud.Identity:
+		return "https://vault.bitwarden.com"
+	case err == nil && e.Identity == euCloud.Identity:
+		return "https://vault.bitwarden.eu"
+	}
+	return strings.TrimRight(base, "/")
+}
+
 // ResolveEndpoints maps a base URL from FormatServerURL to its services.
 // Bitwarden's US and EU clouds have fixed API and identity hosts; any
 // other server serves them under its base path.

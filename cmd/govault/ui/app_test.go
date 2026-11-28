@@ -69,6 +69,11 @@ type mockVaultService struct {
 	localOnly       bool
 	credsUnsaved    bool
 	lastLogin       state.LoginRequest
+	lastSSOLogin    state.SSOLoginRequest
+	ssoErr          error
+	ssoEmailSends   int
+	ssoEmailAddr    string
+	ssoEmailToken   string
 	// trustedServer is the server the trusted sign-in record names.
 	trustedServer string
 	// emailGate, when set, holds SendEmailTwoFactorCode until closed.
@@ -76,6 +81,9 @@ type mockVaultService struct {
 	// unlockCommitted, when set, holds UnlockWithPassword after it commits
 	// until the test answers.
 	unlockCommitted chan struct{}
+	// ssoCommitted, when set, holds LoginSSO after it commits StatusLocked
+	// until the test answers.
+	ssoCommitted chan struct{}
 	// saveGate, when set, holds SaveCipher until it is closed.
 	saveGate chan struct{}
 }
@@ -165,6 +173,57 @@ func (m *mockVaultService) Login(_ context.Context, req state.LoginRequest) erro
 	return nil
 }
 
+func (m *mockVaultService) LoginSSO(_ context.Context, req state.SSOLoginRequest) error {
+	m.mu.Lock()
+	m.lastSSOLogin = req
+	m.logins++
+	if m.ssoErr != nil {
+		err := m.ssoErr
+		m.mu.Unlock()
+		return err
+	}
+	if req.Code == "" || req.CodeVerifier == "" {
+		m.mu.Unlock()
+		return api.ErrUnauthorized
+	}
+	wantProvider := m.twoFactorProvider
+	if wantProvider == 0 {
+		wantProvider = api.TwoFactorEmail
+	}
+	if m.twoFactorCode != "" && (req.TwoFactorProvider != wantProvider || req.TwoFactorCode != m.twoFactorCode) {
+		if req.TwoFactorCode != "" {
+			msg := m.rejectMessage
+			if msg == "" {
+				msg = "Invalid TOTP code"
+			}
+			m.mu.Unlock()
+			return &api.APIError{StatusCode: 400, Message: msg}
+		}
+		offered := m.twoFactorOffered
+		if offered == nil {
+			offered = []api.TwoFactorProvider{api.TwoFactorAuthenticator, api.TwoFactorEmail}
+		}
+		m.mu.Unlock()
+		return &api.TwoFactorRequiredError{Challenge: api.TwoFactorChallenge{
+			Providers:               offered,
+			Email:                   "idp-alice@example.com",
+			SSOEmail2FASessionToken: "mock-sso-email-token",
+			ProviderData: map[api.TwoFactorProvider]json.RawMessage{
+				api.TwoFactorEmail:   json.RawMessage(`{"Email":"a***@example.com"}`),
+				api.TwoFactorYubiKey: json.RawMessage(`{"Nfc":false}`),
+			},
+		}}
+	}
+	m.status = state.StatusLocked
+	committed := m.ssoCommitted
+	m.mu.Unlock()
+	if committed != nil {
+		committed <- struct{}{}
+		<-committed
+	}
+	return nil
+}
+
 func (m *mockVaultService) SendEmailTwoFactorCode(_ context.Context, req state.LoginRequest) error {
 	m.mu.RLock()
 	gate := m.emailGate
@@ -177,6 +236,22 @@ func (m *mockVaultService) SendEmailTwoFactorCode(_ context.Context, req state.L
 	if string(req.MasterPassword) != m.password {
 		return api.ErrUnauthorized
 	}
+	m.emailSends++
+	return nil
+}
+
+func (m *mockVaultService) SendEmailTwoFactorCodeSSO(_ context.Context, _, email, ssoSessionToken string) error {
+	m.mu.RLock()
+	gate := m.emailGate
+	m.mu.RUnlock()
+	if gate != nil {
+		<-gate
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ssoEmailAddr = email
+	m.ssoEmailToken = ssoSessionToken
+	m.ssoEmailSends++
 	m.emailSends++
 	return nil
 }

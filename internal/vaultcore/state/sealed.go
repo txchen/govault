@@ -176,14 +176,21 @@ func uriChecksum(uri string, key *crypto.SymmetricKey) (*string, error) {
 	return &enc, nil
 }
 
-// boundRefreshToken is how a refresh token is stored: with the origin of
-// the server that issued it, so a token is only ever sent back there.
+// boundRefreshToken is how a refresh token is stored: with the canonical
+// base URL (scheme, host, non-default port, installation path) of the
+// server that issued it, so a token is only ever sent back there.
+// Version 2 binds Origin including installation path; version 0 (GoVault
+// 0.6.1) stored only scheme://host and is disambiguated via the trusted
+// keychain sign-in record.
 type boundRefreshToken struct {
-	Origin string `json:"origin"`
-	Token  string `json:"token"`
+	Version int    `json:"v,omitempty"`
+	Origin  string `json:"origin"`
+	Token   string `json:"token"`
 }
 
-func serverOrigin(serverURL string) string {
+const refreshTokenBindingVersion = 2
+
+func hostOrigin(serverURL string) string {
 	u, err := url.Parse(strings.TrimSpace(serverURL))
 	if err != nil || u.Host == "" {
 		return ""
@@ -201,11 +208,27 @@ func serverOrigin(serverURL string) string {
 	return scheme + "://" + host
 }
 
+func serverOrigin(serverURL string) string {
+	base := hostOrigin(serverURL)
+	if base == "" {
+		return ""
+	}
+	u, err := url.Parse(strings.TrimSpace(serverURL))
+	if err != nil {
+		return ""
+	}
+	if p := strings.TrimRight(u.EscapedPath(), "/"); p != "" {
+		base += p
+	}
+	return base
+}
+
 // loadRefreshToken returns the refresh token for accountID if it was issued
-// by serverURL's origin. A token from an older GoVault, stored without its
-// origin, is never trusted: nothing outside the editable snapshot says which
-// server it belongs to, so it takes one fresh sign-in (ErrSignInRequired).
-// No token gives api.ErrUnauthorized.
+// by serverURL's canonical base (including installation path). A token from
+// GoVault 0.6.1 (stored without a version and without path) is accepted only
+// when the trusted keychain sign-in record establishes its exact server base;
+// otherwise it takes one fresh sign-in (ErrSignInRequired). No token gives
+// api.ErrUnauthorized.
 func (s *Service) loadRefreshToken(accountID, serverURL string) (string, error) {
 	s.mu.RLock()
 	unsaved := s.unsavedRefresh
@@ -227,14 +250,38 @@ func (s *Service) loadRefreshToken(accountID, serverURL string) (string, error) 
 	if json.Unmarshal([]byte(raw), &bound) != nil || bound.Token == "" {
 		return "", ErrSignInRequired
 	}
-	if bound.Origin == "" || bound.Origin != serverOrigin(serverURL) {
+	if bound.Origin == "" {
+		return "", ErrServerMismatch
+	}
+	want := serverOrigin(serverURL)
+	if want == "" {
+		return "", ErrServerMismatch
+	}
+	if bound.Version >= refreshTokenBindingVersion {
+		if bound.Origin != want {
+			return "", ErrServerMismatch
+		}
+		return bound.Token, nil
+	}
+	// Legacy v0 (0.6.1) record stored only scheme://host. Disambiguate using
+	// the trusted keychain sign-in record rather than trusting the editable
+	// snapshot alone.
+	trusted := s.TrustedServerURL(accountID)
+	if trusted == "" {
+		return "", ErrSignInRequired
+	}
+	if hostOrigin(trusted) != bound.Origin || serverOrigin(trusted) != want {
 		return "", ErrServerMismatch
 	}
 	return bound.Token, nil
 }
 
 func (s *Service) saveRefreshToken(accountID, serverURL, token string) error {
-	raw, err := json.Marshal(boundRefreshToken{Origin: serverOrigin(serverURL), Token: token})
+	raw, err := json.Marshal(boundRefreshToken{
+		Version: refreshTokenBindingVersion,
+		Origin:  serverOrigin(serverURL),
+		Token:   token,
+	})
 	if err != nil {
 		return err
 	}

@@ -11,7 +11,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -37,7 +39,13 @@ type Environment struct {
 	// means there is none.
 	Keyring    func() (keyring.Store, error)
 	HTTPClient *http.Client
-	Version    string
+	// OpenURL opens a URL in the user's browser for interactive flows such
+	// as SSO. When nil, Run uses the platform's browser launcher.
+	OpenURL func(string) error
+	// SSOCallbackPorts overrides the localhost callback port range for SSO
+	// tests; zero uses api.SSOCallbackPortMin..api.SSOCallbackPortMax.
+	SSOCallbackPorts [2]int
+	Version          string
 	// GOOS selects platform defaults; runtime.GOOS when empty.
 	GOOS string
 	Now  func() time.Time
@@ -293,5 +301,33 @@ func StdEnvironment(version string) *Environment {
 		env.Terminal = newTerminal(os.Stdin, os.Stderr)
 	}
 	env.Keyring = keyring.System
+	env.OpenURL = func(raw string) error { return openBrowserURL(runtime.GOOS, raw) }
 	return env
+}
+
+func openBrowserURL(goos, raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("invalid browser URL")
+	}
+	var cmd *exec.Cmd
+	switch goos {
+	case "darwin":
+		cmd = exec.Command("open", raw)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", raw)
+	default:
+		cmd = exec.Command("xdg-open", raw)
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(250 * time.Millisecond):
+		return nil
+	}
 }

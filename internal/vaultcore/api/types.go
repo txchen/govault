@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/txchen/govault/internal/vaultcore/crypto"
 )
 
 type CipherType int
@@ -35,7 +37,97 @@ type TokenResponse struct {
 	KDFMemory    *int   `json:"KdfMemory"`
 	KDFParallel  *int   `json:"KdfParallelism"`
 
-	TwoFactorToken string `json:"TwoFactorToken"`
+	TwoFactorToken        string                 `json:"TwoFactorToken"`
+	ForcePasswordReset    bool                   `json:"ForcePasswordReset,omitempty"`
+	UserDecryptionOptions *UserDecryptionOptions `json:"UserDecryptionOptions,omitempty"`
+}
+
+// UserDecryptionOptions describes how an authenticated account can decrypt
+// its vault (Vaultwarden identity.rs / bitwarden/server).
+type UserDecryptionOptions struct {
+	HasMasterPassword    bool                  `json:"HasMasterPassword"`
+	MasterPasswordUnlock *MasterPasswordUnlock `json:"MasterPasswordUnlock,omitempty"`
+	KeyConnectorOption   *KeyConnectorOption   `json:"KeyConnectorOption,omitempty"`
+	TrustedDeviceOption  *TrustedDeviceOption  `json:"TrustedDeviceOption,omitempty"`
+}
+
+type MasterPasswordUnlock struct {
+	KDF                       *MasterPasswordUnlockKDF `json:"Kdf,omitempty"`
+	MasterKeyEncryptedUserKey string                   `json:"MasterKeyEncryptedUserKey,omitempty"`
+	MasterKeyWrappedUserKey   string                   `json:"MasterKeyWrappedUserKey,omitempty"`
+	Salt                      string                   `json:"Salt,omitempty"`
+}
+
+type MasterPasswordUnlockKDF struct {
+	KDFType     int  `json:"KdfType"`
+	Iterations  int  `json:"Iterations"`
+	Memory      *int `json:"Memory,omitempty"`
+	Parallelism *int `json:"Parallelism,omitempty"`
+}
+
+type KeyConnectorOption struct {
+	KeyConnectorURL string `json:"KeyConnectorUrl,omitempty"`
+}
+
+type TrustedDeviceOption struct {
+	HasAdminApproval                 bool   `json:"HasAdminApproval,omitempty"`
+	HasLoginApprovingDevice          bool   `json:"HasLoginApprovingDevice,omitempty"`
+	HasManageResetPasswordPermission bool   `json:"HasManageResetPasswordPermission,omitempty"`
+	EncryptedPrivateKey              string `json:"EncryptedPrivateKey,omitempty"`
+	EncryptedUserKey                 string `json:"EncryptedUserKey,omitempty"`
+}
+
+// MasterPasswordProtectedKey returns the master-key-wrapped user key from
+// MasterPasswordUnlock or the top-level Key field.
+func (t *TokenResponse) MasterPasswordProtectedKey() string {
+	if t == nil {
+		return ""
+	}
+	if opt := t.UserDecryptionOptions; opt != nil && opt.MasterPasswordUnlock != nil {
+		if k := opt.MasterPasswordUnlock.MasterKeyWrappedUserKey; k != "" {
+			return k
+		}
+		if k := opt.MasterPasswordUnlock.MasterKeyEncryptedUserKey; k != "" {
+			return k
+		}
+	}
+	return t.Key
+}
+
+// MasterPasswordSalt returns the KDF salt from MasterPasswordUnlock, or ""
+// when absent.
+func (t *TokenResponse) MasterPasswordSalt() string {
+	if t == nil || t.UserDecryptionOptions == nil || t.UserDecryptionOptions.MasterPasswordUnlock == nil {
+		return ""
+	}
+	return t.UserDecryptionOptions.MasterPasswordUnlock.Salt
+}
+
+// MasterPasswordKDF returns the KDF parameters for master-password unlock,
+// preferring UserDecryptionOptions.MasterPasswordUnlock.Kdf when present.
+func (t *TokenResponse) MasterPasswordKDF() crypto.KDFConfig {
+	if t == nil {
+		return crypto.KDFConfig{}
+	}
+	if opt := t.UserDecryptionOptions; opt != nil && opt.MasterPasswordUnlock != nil && opt.MasterPasswordUnlock.KDF != nil {
+		k := opt.MasterPasswordUnlock.KDF
+		cfg := crypto.KDFConfig{Type: crypto.KDFType(k.KDFType), Iterations: uint32(k.Iterations)}
+		if k.Memory != nil {
+			cfg.MemoryMB = uint32(*k.Memory)
+		}
+		if k.Parallelism != nil {
+			cfg.Parallelism = uint32(*k.Parallelism)
+		}
+		return cfg
+	}
+	cfg := crypto.KDFConfig{Type: crypto.KDFType(t.KDF), Iterations: uint32(t.KDFIters)}
+	if t.KDFMemory != nil {
+		cfg.MemoryMB = uint32(*t.KDFMemory)
+	}
+	if t.KDFParallel != nil {
+		cfg.Parallelism = uint32(*t.KDFParallel)
+	}
+	return cfg
 }
 
 type SyncResponse struct {

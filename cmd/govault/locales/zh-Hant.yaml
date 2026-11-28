@@ -43,6 +43,12 @@ signIn: 登入
 backToUnlock: 返回解鎖
 signInFootnote: 端對端加密。您的主密碼絕不會離開此裝置。
 signInFieldsRequired: 請填寫伺服器 URL、電子郵件與主密碼。
+signInWithSSO: 使用 SSO 登入
+orSignInWith: 或
+ssoServerRequired: 使用 SSO 登入需要填寫伺服器 URL。
+ssoWaitingTitle: 請在瀏覽器中完成登入
+ssoWaitingDetail: 在已開啟的瀏覽器視窗中完成單一登入，然後返回 GoVault。
+ssoOpenBrowserAgain: 重新開啟瀏覽器
 togglePasswordVisibility: 切換密碼顯示
 
 # Two-step login
@@ -698,6 +704,12 @@ errorUnsupportedUpload: 伺服器要求使用 GoVault 不支援的附件上傳�
 errorServerMismatch: 已儲存的登入憑證屬於與目前密碼庫副本不同的伺服器，請重新登入。
 errorSignInRequired: 請重新登入以進行同步。在此之前，您的密碼庫可離線使用。
 errorDifferentAccount: 目前登入的帳戶與此裝置上的密碼庫不符。若要切換帳戶，請先登出。
+errorSSOMasterPasswordRequired: 此 SSO 帳戶尚未設定主密碼。請先在網頁端密碼庫中設定主密碼。
+errorSSOForcePasswordReset: 您的組織要求重設主密碼。請先在網頁端密碼庫中重設主密碼。
+errorSSOKeyConnectorUnsupported: 暫不支援搭配 Key Connector 使用 SSO。
+errorSSOTrustedDeviceUnsupported: 暫不支援搭配受信任裝置加密使用 SSO。
+errorSSOCallbackPortUnavailable: 無法啟動本機 SSO 回呼監聽（連接埠 8065–8070 均被佔用）。
+errorSSOStateMismatch: 無法驗證 SSO 回呼狀態，請重新嘗試登入。
 errorAccountChanged: 自確認以來帳戶已變更，請重試。
 errorSnapshotNotUpdated: 伺服器已儲存變更，但無法更新此裝置上的副本。請同步以重新整理。
 errorSealedField: 此項目包含加密資料，GoVault 無法將其複製至新金鑰下。

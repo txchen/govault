@@ -43,6 +43,12 @@ signIn: 로그인
 backToUnlock: 잠금 해제로 돌아가기
 signInFootnote: 종단간 암호화. 마스터 비밀번호는 이 기기를 떠나지 않습니다.
 signInFieldsRequired: 서버 URL, 이메일, 마스터 비밀번호를 모두 입력하세요.
+signInWithSSO: SSO로 로그인
+orSignInWith: 또는
+ssoServerRequired: SSO로 로그인하려면 서버 URL이 필요합니다.
+ssoWaitingTitle: 브라우저에서 로그인을 완료하세요
+ssoWaitingDetail: 열린 브라우저 창에서 싱글 사인온을 완료한 뒤 GoVault로 돌아오세요.
+ssoOpenBrowserAgain: 브라우저 다시 열기
 togglePasswordVisibility: 비밀번호 표시 전환
 
 # Two-step login
@@ -698,6 +704,12 @@ errorUnsupportedUpload: 서버가 GoVault에서 지원하지 않는 첨부 파�
 errorServerMismatch: 저장된 로그인 정보가 이 보관함 사본과 다른 서버의 것입니다. 다시 로그인하세요.
 errorSignInRequired: 동기화하려면 다시 로그인하세요. 그전까지 보관함을 오프라인으로 사용할 수 있습니다.
 errorDifferentAccount: 이 기기의 보관함과 다른 계정으로 로그인했습니다. 다른 계정을 사용하려면 먼저 로그아웃하세요.
+errorSSOMasterPasswordRequired: 이 SSO 계정에는 아직 마스터 비밀번호가 설정되어 있지 않습니다. 먼저 웹 보관함에서 설정하세요.
+errorSSOForcePasswordReset: 조직에서 마스터 비밀번호 재설정을 요구합니다. 먼저 웹 보관함에서 마스터 비밀번호를 재설정하세요.
+errorSSOKeyConnectorUnsupported: Key Connector를 사용하는 SSO는 아직 지원하지 않습니다.
+errorSSOTrustedDeviceUnsupported: 신뢰할 수 있는 기기 암호화를 사용하는 SSO는 아직 지원하지 않습니다.
+errorSSOCallbackPortUnavailable: 로컬 SSO 콜백 리스너를 시작할 수 없습니다(포트 8065–8070 사용 중).
+errorSSOStateMismatch: SSO 콜백을 확인할 수 없습니다. 다시 로그인해 보세요.
 errorAccountChanged: 확인 이후 계정이 변경되었습니다. 다시 시도하세요.
 errorSnapshotNotUpdated: 서버에는 변경 사항이 저장되었지만 이 기기의 사본을 업데이트하지 못했습니다. 동기화하여 새로 고치세요.
 errorSealedField: 이 항목에는 GoVault가 새 키로 복사할 수 없는 암호화 데이터가 포함되어 있습니다.

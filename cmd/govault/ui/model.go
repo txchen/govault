@@ -174,6 +174,12 @@ type PlatformHooks struct {
 	// CommandLineTool installs the bundled gv command; nil where the app
 	// does not manage it (only macOS does).
 	CommandLineTool CommandLineTool
+	// OpenURL opens a URL in the system browser; when nil, views use
+	// cx.OpenURL. Tests set it to intercept browser flows such as SSO.
+	OpenURL func(url string)
+	// SSOCallbackPorts overrides the localhost callback port range for SSO
+	// tests; zero uses api.SSOCallbackPortMin..api.SSOCallbackPortMax.
+	SSOCallbackPorts [2]int
 }
 
 var ErrBiometricCancelled = errors.New("biometric authentication cancelled")
@@ -412,6 +418,12 @@ type AppModel struct {
 	LoginBusy     *core.Signal[bool]
 	LoginError    *core.Signal[string]
 	LoginShowPW   *core.Signal[bool]
+	SSOWaiting    *core.Signal[bool]
+	ssoMu         sync.Mutex
+	ssoAttemptID  uint64
+	ssoCancel     context.CancelFunc
+	ssoURL        string
+	pendingSSO    *pendingSSOLogin
 
 	TwoFactor         *core.Signal[*TwoFactorPrompt]
 	TwoFactorProvider *core.Signal[api.TwoFactorProvider]
@@ -546,6 +558,7 @@ func (m *AppModel) RevokePending() {
 	m.publishMu.Lock()
 	m.lockGen.Add(1)
 	m.publishMu.Unlock()
+	m.cancelSSOContext()
 }
 
 // publishIfUnlocked runs publish only while gen is still current, holding
@@ -620,6 +633,7 @@ func NewAppModel(app *core.Scope, coreSvc state.VaultService, hooks PlatformHook
 		LoginBusy:           core.NewSignal(app, false),
 		LoginError:          core.NewSignal(app, ""),
 		LoginShowPW:         core.NewSignal(app, false),
+		SSOWaiting:          core.NewSignal(app, false),
 		TwoFactor:           core.NewSignal[*TwoFactorPrompt](app, nil),
 		TwoFactorProvider:   core.NewSignal(app, api.TwoFactorAuthenticator),
 		TwoFactorCode:       core.NewSignal(app, ""),
@@ -974,12 +988,309 @@ func (m *AppModel) SyncAccountMetaFromSnapshot() {
 }
 
 type TwoFactorPrompt struct {
-	Providers []api.TwoFactorProvider
-	EmailHint string
+	Providers               []api.TwoFactorProvider
+	EmailHint               string
+	Email                   string
+	SSOEmail2FASessionToken string
+}
+
+type pendingSSOLogin struct {
+	attemptID    uint64
+	serverURL    string
+	email        string
+	code         string
+	codeVerifier string
+	redirectURI  string
+	sameAccount  *state.Account
 }
 
 func (p *TwoFactorPrompt) Has(provider api.TwoFactorProvider) bool {
 	return p != nil && slices.Contains(p.Providers, provider)
+}
+
+func (m *AppModel) ssoLoginTarget() (serverURL, email string, sameAccount *state.Account, ok bool) {
+	serverURL = strings.TrimSpace(m.LoginServer.Get())
+	email = strings.TrimSpace(m.LoginEmail.Get())
+	if m.CanReturnToUnlock() {
+		acct := m.Core.Account()
+		if trusted := m.ReSignInServer.Get(); trusted != "" {
+			serverURL = trusted
+		}
+		acct.ServerURL = serverURL
+		email, sameAccount = acct.Email, &acct
+	}
+	return serverURL, email, sameAccount, serverURL != ""
+}
+
+// cancelSSOContext advances the SSO attempt ID and stops any active browser
+// callback listener. Safe to call from any goroutine.
+func (m *AppModel) cancelSSOContext() uint64 {
+	m.ssoMu.Lock()
+	m.ssoAttemptID++
+	id := m.ssoAttemptID
+	cancel := m.ssoCancel
+	m.ssoCancel = nil
+	m.ssoURL = ""
+	m.ssoMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return id
+}
+
+func (m *AppModel) isSSOAttempt(id uint64) bool {
+	m.ssoMu.Lock()
+	defer m.ssoMu.Unlock()
+	return m.ssoAttemptID == id
+}
+
+// clearSSOWaiterIfCurrent stops and clears the listener only if attemptID
+// is still the active SSO attempt, so an old waiter exiting after Cancel +
+// Restart never interferes with the new attempt.
+func (m *AppModel) clearSSOWaiterIfCurrent(attemptID uint64) {
+	m.ssoMu.Lock()
+	var cancel context.CancelFunc
+	if m.ssoAttemptID == attemptID {
+		cancel = m.ssoCancel
+		m.ssoCancel = nil
+		m.ssoURL = ""
+	}
+	m.ssoMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// abortSSOUI ends any in-progress SSO browser wait or SSO two-factor step.
+func (m *AppModel) abortSSOUI() {
+	m.cancelSSOContext()
+	wasSSO := m.pendingSSO != nil
+	m.pendingSSO = nil
+	m.SSOWaiting.Set(false)
+	m.TwoFactorSending.Set(false)
+	if wasSSO {
+		m.TwoFactor.Set(nil)
+		m.TwoFactorCode.Set("")
+		m.TwoFactorNotice.Set("")
+	}
+}
+
+func (m *AppModel) openBrowser(cx *core.Scope, rawURL string) {
+	if m.Hooks.OpenURL != nil {
+		m.Hooks.OpenURL(rawURL)
+		return
+	}
+	if cx != nil {
+		cx.OpenURL(rawURL, nil)
+	}
+}
+
+// LoginWithSSO starts an OAuth2 + PKCE single sign-on flow in the user's
+// browser and waits on a localhost callback port (8065..8070).
+func (m *AppModel) LoginWithSSO(cx *core.Scope) {
+	if m.LoginBusy.Get() || m.SSOWaiting.Get() {
+		return
+	}
+	serverURL, email, sameAccount, ok := m.ssoLoginTarget()
+	if !ok {
+		m.LoginError.Set(locales.SsoServerRequired(m.Scope))
+		return
+	}
+	formatted := api.FormatServerURL(serverURL)
+	if _, err := api.ResolveEndpoints(formatted); err != nil {
+		m.LoginError.Set(m.errorText(err))
+		return
+	}
+	if formatted != "" {
+		serverURL = formatted
+	} else {
+		serverURL = "https://vault.bitwarden.com"
+	}
+	if sameAccount != nil {
+		sameAccount.ServerURL = serverURL
+	}
+	webVaultURL := api.WebVaultURL(formatted)
+	pkce, err := api.NewSSOPKCE()
+	if err != nil {
+		m.LoginError.Set(m.errorText(err))
+		return
+	}
+	portMin, portMax := api.SSOCallbackPortMin, api.SSOCallbackPortMax
+	if m.Hooks.SSOCallbackPorts != [2]int{} {
+		portMin, portMax = m.Hooks.SSOCallbackPorts[0], m.Hooks.SSOCallbackPorts[1]
+	}
+	cb, err := api.StartSSOCallback(pkce.State, portMin, portMax)
+	if err != nil {
+		m.LoginError.Set(m.errorText(err))
+		return
+	}
+	ssoURL, err := api.BuildSSOURL(webVaultURL, "desktop", cb.RedirectURI(), pkce, email, "")
+	if err != nil {
+		cb.Close()
+		m.LoginError.Set(m.errorText(err))
+		return
+	}
+
+	m.ReleaseSecureInput()
+	m.LoginError.Set("")
+	m.pendingSSO = nil
+	m.SSOWaiting.Set(true)
+
+	waitCtx, cancel := context.WithTimeout(context.Background(), api.DefaultSSOWaitTimeout)
+	attemptID := m.cancelSSOContext()
+	m.ssoMu.Lock()
+	m.ssoCancel = cancel
+	m.ssoURL = ssoURL
+	m.ssoMu.Unlock()
+
+	gen := m.LockGeneration()
+	m.openBrowser(cx, ssoURL)
+
+	go func() {
+		res, err := cb.Wait(waitCtx)
+		m.Scope.Post(func() {
+			m.clearSSOWaiterIfCurrent(attemptID)
+			if !m.isSSOAttempt(attemptID) || gen != m.LockGeneration() {
+				return
+			}
+			m.SSOWaiting.Set(false)
+			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					return
+				}
+				m.LoginError.Set(m.errorText(err))
+				return
+			}
+			m.pendingSSO = &pendingSSOLogin{
+				attemptID:    attemptID,
+				serverURL:    serverURL,
+				email:        email,
+				code:         res.Code,
+				codeVerifier: pkce.CodeVerifier,
+				redirectURI:  cb.RedirectURI(),
+				sameAccount:  sameAccount,
+			}
+			m.submitSSOLogin(attemptID, state.SSOLoginRequest{
+				ServerURL:    serverURL,
+				Code:         res.Code,
+				CodeVerifier: pkce.CodeVerifier,
+				RedirectURI:  cb.RedirectURI(),
+				Email:        email,
+				SameAccount:  sameAccount,
+			})
+		})
+	}()
+}
+
+// ReopenSSOBrowser opens the active SSO URL in the browser again.
+func (m *AppModel) ReopenSSOBrowser(cx *core.Scope) {
+	m.ssoMu.Lock()
+	u := m.ssoURL
+	m.ssoMu.Unlock()
+	if u != "" {
+		m.openBrowser(cx, u)
+	}
+}
+
+// CancelSSO aborts an in-progress browser SSO wait and stops the callback listener.
+func (m *AppModel) CancelSSO() {
+	m.abortSSOUI()
+	m.LoginError.Set("")
+}
+
+func (m *AppModel) submitSSOLogin(attemptID uint64, req state.SSOLoginRequest) {
+	if !m.isSSOAttempt(attemptID) {
+		return
+	}
+	m.ReleaseSecureInput()
+	m.LoginBusy.Set(true)
+	m.LoginError.Set("")
+	verifying := req.TwoFactorCode != ""
+	provider := req.TwoFactorProvider
+	ctx := state.WithAuthAttempt(context.Background(), m.Core.AuthAttempt())
+	gen := m.LockGeneration()
+
+	go func() {
+		err := m.Core.LoginSSO(ctx, req)
+		m.Scope.Post(func() {
+			if !m.isSSOAttempt(attemptID) || gen != m.LockGeneration() {
+				// If LoginSSO already committed a locked account before sleep
+				// or revocation invalidated this callback, reconcile the UI to
+				// that locked account (never unlocking it) so the app does not
+				// wake stranded on the sign-in screen.
+				if err == nil && m.Core.Status() == state.StatusLocked && (m.LockState.Get() == state.StatusLoggedOut || m.ReSignIn.Get()) {
+					m.reconcileCommittedLockedSSO(req.ServerURL)
+				}
+				return
+			}
+			m.LoginBusy.Set(false)
+			if err != nil {
+				m.loginFailed(err, verifying, provider)
+				if m.TwoFactor.Get() == nil {
+					m.pendingSSO = nil
+				}
+				return
+			}
+			m.finishSSOLogin(req.ServerURL)
+		})
+	}()
+}
+
+// reconcileCommittedLockedSSO aligns the UI with an account that LoginSSO
+// already persisted before a concurrent sleep/revocation cancelled the
+// completion callback.
+func (m *AppModel) reconcileCommittedLockedSSO(serverURL string) {
+	acct := m.Core.Account()
+	m.UpdatePrefs(func(p UserPrefs) UserPrefs {
+		if serverURL != "" {
+			p.ServerURL = strings.TrimRight(serverURL, "/")
+		} else if trusted := m.Core.TrustedServerURL(acct.ID); trusted != "" {
+			p.ServerURL = strings.TrimRight(trusted, "/")
+		}
+		if acct.Email != "" {
+			p.Email = acct.Email
+		}
+		if acct.ID != "" {
+			p.AccountID = acct.ID
+		}
+		return p
+	})
+	m.SyncAccountMetaFromSnapshot()
+	m.ReSignIn.Set(false)
+	m.LockState.Set(state.StatusLocked)
+}
+
+func (m *AppModel) finishSSOLogin(serverURL string) {
+	m.cancelSSOContext()
+	m.pendingSSO = nil
+	m.SSOWaiting.Set(false)
+	m.ReSignIn.Set(false)
+	m.LoginPassword.Set("")
+	m.TwoFactor.Set(nil)
+	m.NewDevice.Set(nil)
+	m.TwoFactorCode.Set("")
+	m.TwoFactorNotice.Set("")
+	m.LockPassword.Set("")
+	m.LockError.Set("")
+	m.LockBusy.Set(false)
+	acct := m.Core.Account()
+	m.UpdatePrefs(func(p UserPrefs) UserPrefs {
+		p.ServerURL = strings.TrimRight(serverURL, "/")
+		if acct.Email != "" {
+			p.Email = acct.Email
+		}
+		if acct.ID != "" {
+			p.AccountID = acct.ID
+		}
+		return p
+	})
+	m.SyncAccountMetaFromSnapshot()
+	m.LastSync.Set(time.Now())
+	m.SyncState.Set(SyncIdle)
+	m.LocalOnly.Set(false)
+	m.CredentialsNotSaved.Set(false)
+	m.LockState.Set(state.StatusLocked)
+	m.ReleaseSecureInput()
 }
 
 func (m *AppModel) loginRequest() (state.LoginRequest, bool) {
@@ -1040,6 +1351,20 @@ func (m *AppModel) VerifyTwoFactor() {
 	}
 	if code == "" {
 		m.LoginError.Set(locales.TwoFactorCodeRequired(m.Scope))
+		return
+	}
+	if sso := m.pendingSSO; sso != nil {
+		m.submitSSOLogin(sso.attemptID, state.SSOLoginRequest{
+			ServerURL:         sso.serverURL,
+			Code:              sso.code,
+			CodeVerifier:      sso.codeVerifier,
+			RedirectURI:       sso.redirectURI,
+			Email:             sso.email,
+			TwoFactorProvider: provider,
+			TwoFactorCode:     code,
+			RememberDevice:    m.TwoFactorRemember.Get(),
+			SameAccount:       sso.sameAccount,
+		})
 		return
 	}
 	req, ok := m.loginRequest()
@@ -1120,7 +1445,11 @@ func (m *AppModel) twoFactorRejected(provider api.TwoFactorProvider, apiErr *api
 }
 
 func (m *AppModel) enterTwoFactor(ch api.TwoFactorChallenge) {
-	prompt := &TwoFactorPrompt{EmailHint: ch.EmailHint()}
+	prompt := &TwoFactorPrompt{
+		EmailHint:               ch.EmailHint(),
+		Email:                   ch.Email,
+		SSOEmail2FASessionToken: ch.SSOEmail2FASessionToken,
+	}
 	for _, p := range ch.Providers {
 		if slices.Contains(twoFactorSupported, p) {
 			prompt.Providers = append(prompt.Providers, p)
@@ -1143,7 +1472,10 @@ func (m *AppModel) enterTwoFactor(ch api.TwoFactorChallenge) {
 	m.TwoFactorCode.Set("")
 	m.TwoFactorRemember.Set(false)
 	m.TwoFactorNotice.Set("")
-	if len(ch.Providers) == 1 && ch.Providers[0] == api.TwoFactorEmail {
+	// During password login, servers auto-send the email code when email is
+	// the only provider. During SSO login, Vaultwarden builds the redacted
+	// hint without sending an email, so wait for an explicit send.
+	if m.pendingSSO == nil && len(ch.Providers) == 1 && ch.Providers[0] == api.TwoFactorEmail {
 		m.TwoFactorNotice.Set(m.emailSentNotice(prompt.EmailHint))
 	}
 	m.LoginError.Set("")
@@ -1161,7 +1493,36 @@ func (m *AppModel) SelectTwoFactorProvider(p api.TwoFactorProvider) {
 }
 
 func (m *AppModel) SendTwoFactorEmail() {
-	if m.TwoFactorSending.Get() || !m.TwoFactor.Get().Has(api.TwoFactorEmail) {
+	prompt := m.TwoFactor.Get()
+	if m.TwoFactorSending.Get() || !prompt.Has(api.TwoFactorEmail) {
+		return
+	}
+	hint := prompt.EmailHint
+	if sso := m.pendingSSO; sso != nil {
+		m.TwoFactorSending.Set(true)
+		m.LoginError.Set("")
+		m.TwoFactorNotice.Set("")
+		gen := m.LockGeneration()
+		attemptID := sso.attemptID
+		email := prompt.Email
+		if email == "" {
+			email = sso.email
+		}
+		serverURL, ssoToken := sso.serverURL, prompt.SSOEmail2FASessionToken
+		go func() {
+			err := m.Core.SendEmailTwoFactorCodeSSO(context.Background(), serverURL, email, ssoToken)
+			m.Scope.Post(func() {
+				if !m.isSSOAttempt(attemptID) || gen != m.LockGeneration() {
+					return
+				}
+				m.TwoFactorSending.Set(false)
+				if err != nil {
+					m.LoginError.Set(locales.TwoFactorEmailFailed(m.Scope, m.errorText(err)))
+					return
+				}
+				m.TwoFactorNotice.Set(m.emailSentNotice(hint))
+			})
+		}()
 		return
 	}
 	req, ok := m.loginRequest()
@@ -1169,7 +1530,6 @@ func (m *AppModel) SendTwoFactorEmail() {
 		m.CancelTwoFactor()
 		return
 	}
-	hint := m.TwoFactor.Get().EmailHint
 	m.TwoFactorSending.Set(true)
 	m.LoginError.Set("")
 	m.TwoFactorNotice.Set("")
@@ -1289,6 +1649,8 @@ func (m *AppModel) CancelNewDevice() {
 }
 
 func (m *AppModel) CancelTwoFactor() {
+	m.abortSSOUI()
+	m.TwoFactorSending.Set(false)
 	m.TwoFactor.Set(nil)
 	m.TwoFactorCode.Set("")
 	m.TwoFactorNotice.Set("")
@@ -1332,6 +1694,7 @@ func (m *AppModel) BackToUnlock() {
 	}
 	m.Core.RevokeAuthAttempts()
 	m.RevokePending()
+	m.abortSSOUI()
 	m.LoginBusy.Set(false)
 	m.LoginPassword.Set("")
 	m.LoginError.Set("")
@@ -1632,6 +1995,9 @@ func (m *AppModel) LockOnSystemEvent() bool {
 		m.Core.RevokeAuthAttempts()
 		m.RevokePending()
 		m.clearAuthInputs()
+		if m.Core.Status() == state.StatusLocked && (m.LockState.Get() == state.StatusLoggedOut || m.ReSignIn.Get()) {
+			m.reconcileCommittedLockedSSO("")
+		}
 		return false
 	}
 	// The UI may show the vault while the unlock that opened it has not
@@ -1644,6 +2010,7 @@ func (m *AppModel) LockOnSystemEvent() bool {
 // clearAuthInputs empties every password field and ends every sign-in or
 // unlock the UI shows as running.
 func (m *AppModel) clearAuthInputs() {
+	m.abortSSOUI()
 	m.LockBusy.Set(false)
 	m.LoginBusy.Set(false)
 	m.RepromptBusy.Set(false)

@@ -43,6 +43,12 @@ signIn: ログイン
 backToUnlock: ロック解除に戻る
 signInFootnote: エンドツーエンド暗号化。マスターパスワードがこのデバイスから外部に送信されることはありません。
 signInFieldsRequired: サーバー URL、メールアドレス、マスターパスワードを入力してください。
+signInWithSSO: SSO でサインイン
+orSignInWith: または
+ssoServerRequired: SSO でサインインするにはサーバー URL が必要です。
+ssoWaitingTitle: ブラウザーでサインインを完了してください
+ssoWaitingDetail: 開いたブラウザーウィンドウでシングルサインオンを完了してから、GoVault に戻ってください。
+ssoOpenBrowserAgain: ブラウザーをもう一度開く
 togglePasswordVisibility: パスワードの表示を切り替え
 
 # Two-step login
@@ -698,6 +704,12 @@ errorUnsupportedUpload: サーバーが GoVault 未対応の添付ファイル�
 errorServerMismatch: 保存されたログイン情報は、この保管庫コピーとは異なるサーバーのものです。再ログインしてください。
 errorSignInRequired: 同期するには再ログインしてください。それまではオフラインで保管庫を利用できます。
 errorDifferentAccount: このログインはこのデバイス上の保管庫とは別のアカウントです。別のアカウントを使うには先にログアウトしてください。
+errorSSOMasterPasswordRequired: この SSO アカウントにはまだマスターパスワードが設定されていません。先にウェブ保管庫で設定してください。
+errorSSOForcePasswordReset: 所属組織によりマスターパスワードのリセットが必要です。先にウェブ保管庫でリセットしてください。
+errorSSOKeyConnectorUnsupported: Key Connector を使用した SSO はまだサポートされていません。
+errorSSOTrustedDeviceUnsupported: 信頼済みデバイス暗号化を使用した SSO はまだサポートされていません。
+errorSSOCallbackPortUnavailable: ローカルの SSO コールバック待受を開始できませんでした（ポート 8065–8070 が使用中です）。
+errorSSOStateMismatch: SSO コールバックを検証できませんでした。もう一度サインインしてください。
 errorAccountChanged: 確認後にアカウントが変更されました。やり直してください。
 errorSnapshotNotUpdated: サーバーには変更が保存されましたが、このデバイスのコピーを更新できませんでした。同期して更新してください。
 errorSealedField: このアイテムには、GoVault が新しい鍵へコピーできない暗号化データが含まれています。

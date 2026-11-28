@@ -43,6 +43,12 @@ signIn: Entrar
 backToUnlock: Voltar ao desbloqueio
 signInFootnote: Criptografia de ponta a ponta. Sua senha principal nunca sai deste dispositivo.
 signInFieldsRequired: URL do servidor, e-mail e senha principal são obrigatórios.
+signInWithSSO: Entrar com SSO
+orSignInWith: ou
+ssoServerRequired: A URL do servidor é obrigatória para entrar com SSO.
+ssoWaitingTitle: Conclua o login no navegador
+ssoWaitingDetail: Conclua o login único na janela do navegador aberta e retorne ao GoVault.
+ssoOpenBrowserAgain: Abrir navegador novamente
 togglePasswordVisibility: Mostrar ou ocultar senha
 
 # Two-step login
@@ -698,6 +704,12 @@ errorUnsupportedUpload: O servidor solicitou um envio de anexo não suportado pe
 errorServerMismatch: O login salvo pertence a um servidor diferente desta cópia do cofre. Entre novamente.
 errorSignInRequired: Entre novamente para sincronizar. Até lá, seu cofre continua disponível offline.
 errorDifferentAccount: Este login é de uma conta diferente da do cofre neste dispositivo. Para trocar de conta, saia primeiro.
+errorSSOMasterPasswordRequired: Esta conta SSO ainda não tem uma senha principal. Defina uma primeiro no cofre web.
+errorSSOForcePasswordReset: Sua organização exige a redefinição da senha principal. Redefina-a primeiro no cofre web.
+errorSSOKeyConnectorUnsupported: SSO com Key Connector ainda não é compatível.
+errorSSOTrustedDeviceUnsupported: SSO com criptografia de dispositivo confiável ainda não é compatível.
+errorSSOCallbackPortUnavailable: Não foi possível iniciar o retorno local de SSO (as portas 8065–8070 estão em uso).
+errorSSOStateMismatch: Não foi possível verificar o retorno do SSO. Tente entrar novamente.
 errorAccountChanged: A conta mudou desde a confirmação. Tente novamente.
 errorSnapshotNotUpdated: O servidor tem a alteração, mas a cópia neste dispositivo não pôde ser atualizada. Sincronize para atualizar.
 errorSealedField: Este item contém dados criptografados que o GoVault não pode copiar para uma nova chave.

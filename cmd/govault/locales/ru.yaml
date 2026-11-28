@@ -43,6 +43,12 @@ signIn: Войти
 backToUnlock: Назад к разблокировке
 signInFootnote: Сквозное шифрование. Мастер-пароль никогда не покидает это устройство.
 signInFieldsRequired: Укажите URL сервера, эл. почту и мастер-пароль.
+signInWithSSO: Войти через SSO
+orSignInWith: или
+ssoServerRequired: Для входа через SSO укажите URL сервера.
+ssoWaitingTitle: Завершите вход в браузере
+ssoWaitingDetail: Пройдите единый вход в открывшемся окне браузера, затем вернитесь в GoVault.
+ssoOpenBrowserAgain: Открыть браузер снова
 togglePasswordVisibility: Показать или скрыть пароль
 
 # Two-step login
@@ -698,6 +704,12 @@ errorUnsupportedUpload: Сервер запросил неподдерживае
 errorServerMismatch: Сохранённый вход относится к другому серверу. Войдите снова.
 errorSignInRequired: Войдите снова для синхронизации. Пока хранилище доступно офлайн.
 errorDifferentAccount: Этот вход относится к другому аккаунту. Чтобы сменить аккаунт, сначала выйдите.
+errorSSOMasterPasswordRequired: Для этого аккаунта SSO ещё не задан мастер-пароль. Сначала задайте его в веб-хранилище.
+errorSSOForcePasswordReset: Ваша организация требует сбросить мастер-пароль. Сначала сбросьте его в веб-хранилище.
+errorSSOKeyConnectorUnsupported: Вход через SSO с Key Connector пока не поддерживается.
+errorSSOTrustedDeviceUnsupported: Вход через SSO с шифрованием доверенных устройств пока не поддерживается.
+errorSSOCallbackPortUnavailable: Не удалось запустить локальный обработчик SSO (порты 8065–8070 заняты).
+errorSSOStateMismatch: Не удалось проверить ответ SSO. Попробуйте войти снова.
 errorAccountChanged: Аккаунт изменился после подтверждения. Повторите попытку.
 errorSnapshotNotUpdated: Сервер сохранил изменение, но локальную копию обновить не удалось. Синхронизируйте для обновления.
 errorSealedField: Этот элемент содержит зашифрованные данные, которые GoVault не может перенести под новый ключ.

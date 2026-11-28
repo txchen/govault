@@ -268,6 +268,246 @@ func (s *Service) Login(ctx context.Context, req LoginRequest) error {
 	return nil
 }
 
+// LoginSSO exchanges an SSO authorization code and PKCE verifier for a
+// signed-in session and saves the encrypted vault snapshot. Because SSO
+// does not supply the master password, the vault enters StatusLocked so
+// the caller can unlock it with UnlockWithPassword.
+func (s *Service) LoginSSO(ctx context.Context, req SSOLoginRequest) error {
+	gen := s.attemptFrom(ctx)
+	serverURL := req.ServerURL
+	if want := req.SameAccount; want != nil {
+		if trusted := s.TrustedServerURL(want.ID); trusted != "" && serverOrigin(trusted) != serverOrigin(serverURL) {
+			return ErrDifferentAccount
+		}
+	}
+	client, err := s.newAPIClient(serverURL)
+	if err != nil {
+		return err
+	}
+
+	var twoFactor *api.TwoFactorLogin
+	usedRemembered := false
+	rememberKey := ""
+	if code := strings.TrimSpace(req.TwoFactorCode); code != "" {
+		twoFactor = &api.TwoFactorLogin{Provider: req.TwoFactorProvider, Token: code, Remember: req.RememberDevice}
+	} else if s.cfg.Secrets != nil && strings.TrimSpace(req.Email) != "" {
+		rememberKey = twoFactorRememberKey(serverURL, req.Email)
+		if remembered, ok, _ := s.cfg.Secrets.Get(rememberKey); ok && remembered != "" {
+			twoFactor = &api.TwoFactorLogin{Provider: api.TwoFactorRemember, Token: remembered}
+			usedRemembered = true
+		}
+	}
+
+	tok, err := client.LoginSSO(ctx, api.SSOLoginOptions{
+		Code:         req.Code,
+		CodeVerifier: req.CodeVerifier,
+		RedirectURI:  req.RedirectURI,
+		TwoFactor:    twoFactor,
+	})
+	if err != nil {
+		if usedRemembered && rememberKey != "" && errors.Is(err, api.ErrTwoFactorRequired) {
+			_ = s.cfg.Secrets.Delete(rememberKey)
+		}
+		return err
+	}
+
+	if err := checkSSODecryptionSupport(tok); err != nil {
+		return err
+	}
+	sub, err := api.TokenSubject(tok.AccessToken)
+	if err != nil {
+		return err
+	}
+
+	revDate, _ := client.RevisionDate(ctx, tok.AccessToken)
+	syncResp, rawSync, err := client.Sync(ctx, tok.AccessToken)
+	if err != nil {
+		return err
+	}
+
+	if syncResp.Profile.ID != "" && syncResp.Profile.ID != sub {
+		return ErrDifferentAccount
+	}
+	email := crypto.NormalizeEmail(syncResp.Profile.Email)
+	if email == "" {
+		email = crypto.NormalizeEmail(req.Email)
+	}
+	accountID := syncResp.Profile.ID
+	if accountID == "" {
+		accountID = sub
+	}
+	if accountID == "" {
+		accountID = email
+	}
+	if want := req.SameAccount; want != nil && (want.ID != accountID || serverOrigin(want.ServerURL) != serverOrigin(serverURL)) {
+		return ErrDifferentAccount
+	}
+
+	protectedKey := tok.MasterPasswordProtectedKey()
+	if protectedKey == "" {
+		protectedKey = syncResp.Profile.Key
+	}
+	if protectedKey == "" {
+		return ErrSSOMasterPasswordRequired
+	}
+
+	kdfCfg := tok.MasterPasswordKDF()
+	if kdfCfg.Iterations == 0 {
+		kdfCfg = crypto.KDFConfig{Type: crypto.KDFType(syncResp.Profile.KDF), Iterations: uint32(syncResp.Profile.KDFIters)}
+		if syncResp.Profile.KDFMemory != nil {
+			kdfCfg.MemoryMB = uint32(*syncResp.Profile.KDFMemory)
+		}
+		if syncResp.Profile.KDFParallel != nil {
+			kdfCfg.Parallelism = uint32(*syncResp.Profile.KDFParallel)
+		}
+	}
+
+	snap := &store.Snapshot{
+		SchemaVersion: store.CurrentSchemaVersion,
+		AccountID:     accountID,
+		ServerURL:     strings.TrimRight(strings.TrimSpace(serverURL), "/"),
+		Email:         email,
+		KDFSalt:       tok.MasterPasswordSalt(),
+		KDF:           kdfCfg,
+		ProtectedKey:  protectedKey,
+		RevisionDate:  revDate,
+		LastSyncAt:    time.Now().UTC(),
+		RawSyncJSON:   rawSync,
+	}
+
+	// Serialize durable writes with persistMu and secretMu so revocation or
+	// a failing secret store cannot leave a half-written account on disk.
+	prevStatus, err := s.commitSSODurable(gen, client, accountID, serverURL, email, snap, tok)
+	if err != nil {
+		return err
+	}
+
+	// Only notify if an unlocked session was actually left; on normal SSO
+	// login (LoggedOut -> Locked) and ReSignIn (Locked -> Locked), the
+	// caller drives the transition to the unlock screen without triggering
+	// the production shell's "left unlocked" revocation handler.
+	if prevStatus == StatusUnlocked {
+		s.notifyStatus(StatusLocked)
+	}
+	return nil
+}
+
+func (s *Service) commitSSODurable(gen uint64, client *api.Client, accountID, serverURL, email string, snap *store.Snapshot, tok *api.TokenResponse) (LockStatus, error) {
+	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
+	s.secretMu.Lock()
+	defer s.secretMu.Unlock()
+
+	if s.attemptGen() != gen {
+		return StatusLoggedOut, ErrLocked
+	}
+	// Positively read existing durable state (or confirm not-found) before
+	// writing anything, so rollback can never delete data it failed to read.
+	prevSnap, prevSnapErr := s.cfg.Store.LoadSnapshot(accountID)
+	var hadPrevSnap bool
+	switch {
+	case prevSnapErr == nil && prevSnap != nil:
+		hadPrevSnap = true
+	case errors.Is(prevSnapErr, store.ErrSnapshotNotFound):
+		hadPrevSnap = false
+	default:
+		return StatusLoggedOut, prevSnapErr
+	}
+	restoreSnap := func() error {
+		if hadPrevSnap {
+			return s.cfg.Store.SaveSnapshot(prevSnap)
+		}
+		return s.cfg.Store.DeleteSnapshot(accountID)
+	}
+
+	var prevRefresh, prevSignIn string
+	var hadRefresh, hadSignIn bool
+	if s.cfg.Secrets != nil && tok.RefreshToken != "" {
+		var err error
+		if prevRefresh, hadRefresh, err = s.cfg.Secrets.Get(refreshTokenKeyPrefix + accountID); err != nil {
+			return StatusLoggedOut, err
+		}
+		if prevSignIn, hadSignIn, err = s.cfg.Secrets.Get(signInRecordPrefix + accountID); err != nil {
+			return StatusLoggedOut, err
+		}
+	}
+	restoreSecrets := func() error {
+		if s.cfg.Secrets == nil || tok.RefreshToken == "" {
+			return nil
+		}
+		var rErr, sErr error
+		if hadRefresh {
+			rErr = s.cfg.Secrets.Set(refreshTokenKeyPrefix+accountID, prevRefresh)
+		} else {
+			rErr = s.cfg.Secrets.Delete(refreshTokenKeyPrefix + accountID)
+		}
+		if hadSignIn {
+			sErr = s.cfg.Secrets.Set(signInRecordPrefix+accountID, prevSignIn)
+		} else {
+			sErr = s.cfg.Secrets.Delete(signInRecordPrefix + accountID)
+		}
+		return errors.Join(rErr, sErr)
+	}
+
+	if err := s.cfg.Store.SaveSnapshot(snap); err != nil {
+		return StatusLoggedOut, err
+	}
+	if s.cfg.Secrets != nil && tok.RefreshToken != "" {
+		if err := s.saveRefreshToken(accountID, snap.ServerURL, tok.RefreshToken); err != nil {
+			return StatusLoggedOut, errors.Join(err, restoreSnap())
+		}
+		if err := s.saveSignInRecord(accountID, snap.ServerURL); err != nil {
+			return StatusLoggedOut, errors.Join(err, restoreSecrets(), restoreSnap())
+		}
+	}
+
+	s.mu.Lock()
+	if s.sessionGen != gen {
+		s.mu.Unlock()
+		return StatusLoggedOut, errors.Join(ErrLocked, restoreSecrets(), restoreSnap())
+	}
+	prevStatus := s.status
+	s.stopRealtimeLocked()
+	s.endSessionLocked()
+	if s.userKey != nil {
+		s.userKey.Zero()
+		s.userKey = nil
+	}
+	s.clearDataLocked()
+	s.accountID = accountID
+	s.snapshot = snap
+	s.apiClient = client
+	s.localOnly = false
+	s.credsUnsaved = false
+	s.status = StatusLocked
+	s.mu.Unlock()
+
+	if s.cfg.Secrets != nil && tok.TwoFactorToken != "" && email != "" {
+		_ = s.cfg.Secrets.Set(twoFactorRememberKey(serverURL, email), tok.TwoFactorToken)
+	}
+	return prevStatus, nil
+}
+
+func checkSSODecryptionSupport(tok *api.TokenResponse) error {
+	if tok == nil {
+		return nil
+	}
+	if tok.ForcePasswordReset {
+		return ErrSSOForcePasswordReset
+	}
+	if tok.UserDecryptionOptions == nil || tok.UserDecryptionOptions.HasMasterPassword {
+		return nil
+	}
+	opt := tok.UserDecryptionOptions
+	if opt.KeyConnectorOption != nil {
+		return ErrSSOKeyConnectorUnsupported
+	}
+	if opt.TrustedDeviceOption != nil {
+		return ErrSSOTrustedDeviceUnsupported
+	}
+	return ErrSSOMasterPasswordRequired
+}
+
 func (s *Service) SendEmailTwoFactorCode(ctx context.Context, req LoginRequest) error {
 	client, _, masterKey, pwHash, err := s.prepareLogin(ctx, req)
 	if err != nil {
@@ -275,6 +515,14 @@ func (s *Service) SendEmailTwoFactorCode(ctx context.Context, req LoginRequest) 
 	}
 	crypto.ZeroBytes(masterKey[:])
 	return client.SendEmailTwoFactorLogin(ctx, req.Email, pwHash)
+}
+
+func (s *Service) SendEmailTwoFactorCodeSSO(ctx context.Context, serverURL, email, ssoSessionToken string) error {
+	client, err := s.newAPIClient(serverURL)
+	if err != nil {
+		return err
+	}
+	return client.SendEmailTwoFactorLoginSSO(ctx, email, ssoSessionToken)
 }
 
 // ResendNewDeviceOTP asks the server to email the new device verification
@@ -429,7 +677,7 @@ func (s *Service) UnlockWithPassword(ctx context.Context, masterPassword []byte)
 		return err
 	}
 
-	masterKey, err := crypto.DeriveMasterKey(masterPassword, snap.Email, snap.KDF)
+	masterKey, err := crypto.DeriveKeyFromPassword(masterPassword, snap.EffectiveKDFSalt(), snap.KDF)
 	if err != nil {
 		return err
 	}

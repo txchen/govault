@@ -295,7 +295,7 @@ func (o *online) renew(ctx context.Context, c *credentials) error {
 	var resp *api.TokenResponse
 	var err error
 	switch c.Grant {
-	case GrantPassword:
+	case GrantPassword, GrantSSO:
 		if c.RefreshToken == "" {
 			return ErrSignInRequired
 		}

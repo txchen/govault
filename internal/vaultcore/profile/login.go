@@ -113,6 +113,200 @@ func (l *PasswordLogin) CompleteWith(ctx context.Context, opts api.PasswordLogin
 	})
 }
 
+// SSOLogin binds an entire browser SSO login attempt to the server
+// configuration captured before opening the browser. Authenticate verifies
+// the configuration has not changed before exchanging the code (retrying
+// after two-step verification if requested), and Commit syncs and saves the
+// account.
+type SSOLogin struct {
+	p            *Profile
+	ps           *profileState
+	endpoints    api.Endpoints
+	webVaultURL  string
+	client       *api.Client
+	code         string
+	codeVerifier string
+	redirectURI  string
+	tok          *api.TokenResponse
+}
+
+// PrepareSSOLogin snapshots the logged-out server endpoints, web vault URL,
+// device ID, and configuration generation before the browser opens.
+func (p *Profile) PrepareSSOLogin() (*SSOLogin, error) {
+	ps, e, err := p.loggedOutEndpoints()
+	if err != nil {
+		return nil, err
+	}
+	client, err := p.newClient(e, ps.DeviceID)
+	if err != nil {
+		return nil, err
+	}
+	webVault := ps.Overrides.WebVault
+	if webVault == "" {
+		webVault = api.WebVaultURL(ps.Server)
+	}
+	return &SSOLogin{
+		p: p, ps: ps, endpoints: e, webVaultURL: webVault, client: client,
+	}, nil
+}
+
+// BeginSSOLogin prepares to exchange an SSO authorization code at the
+// configured server. Prefer PrepareSSOLogin before opening the browser so
+// the authorization and exchange stay bound to the same configuration.
+func (p *Profile) BeginSSOLogin(_ context.Context, code, codeVerifier, redirectURI string) (*SSOLogin, error) {
+	l, err := p.PrepareSSOLogin()
+	if err != nil {
+		return nil, err
+	}
+	l.SetCallback(code, codeVerifier, redirectURI)
+	return l, nil
+}
+
+// WebVaultURL returns the web vault URL captured when this attempt started.
+func (l *SSOLogin) WebVaultURL() string { return l.webVaultURL }
+
+// SetCallback records the verified callback code and PKCE parameters for
+// this attempt.
+func (l *SSOLogin) SetCallback(code, codeVerifier, redirectURI string) {
+	l.code, l.codeVerifier, l.redirectURI = code, codeVerifier, redirectURI
+}
+
+// HasKeyring reports whether this profile has an OS credential store that
+// can seal credentials without unlocking the vault first.
+func (p *Profile) HasKeyring() bool { return p.opts.Keyring != nil }
+
+// checkUnchanged refuses to send the authorization code or PKCE verifier
+// if the profile's server configuration or login state changed while the
+// browser was open.
+func (l *SSOLogin) checkUnchanged() error {
+	return l.p.shared(func() error {
+		if acct, err := l.p.activeAccount(); err == nil {
+			return &AlreadyLoggedInError{Email: acct.Email}
+		} else if !errors.Is(err, ErrNotLoggedIn) {
+			return err
+		}
+		cur, err := l.p.loadProfile()
+		if err != nil {
+			return err
+		}
+		if cur.Generation != l.ps.Generation || cur.Server != l.ps.Server || cur.Overrides != l.ps.Overrides {
+			return ErrStale
+		}
+		return nil
+	})
+}
+
+// SendEmailCode asks the server to email a two-step login code during an
+// SSO login, where there is no master password hash.
+func (l *SSOLogin) SendEmailCode(ctx context.Context, email, ssoSessionToken string) error {
+	if err := l.checkUnchanged(); err != nil {
+		return err
+	}
+	return l.client.SendEmailTwoFactorLoginSSO(ctx, email, ssoSessionToken)
+}
+
+// Authenticate exchanges the SSO authorization code for tokens. It returns
+// *api.TwoFactorRequiredError when two-step verification is needed.
+func (l *SSOLogin) Authenticate(ctx context.Context, twoFactor *api.TwoFactorLogin) error {
+	if err := l.checkUnchanged(); err != nil {
+		return err
+	}
+	tok, err := l.client.LoginSSO(ctx, api.SSOLoginOptions{
+		Code:         l.code,
+		CodeVerifier: l.codeVerifier,
+		RedirectURI:  l.redirectURI,
+		TwoFactor:    twoFactor,
+	})
+	if err != nil {
+		return err
+	}
+	if tok.ForcePasswordReset {
+		return ErrSSOForcePasswordReset
+	}
+	if opt := tok.UserDecryptionOptions; opt != nil && !opt.HasMasterPassword {
+		switch {
+		case opt.KeyConnectorOption != nil:
+			return ErrSSOKeyConnectorUnsupported
+		case opt.TrustedDeviceOption != nil:
+			return ErrSSOTrustedDeviceUnsupported
+		default:
+			return ErrSSOMasterPasswordRequired
+		}
+	}
+	l.tok = tok
+	return nil
+}
+
+// Commit syncs and saves the authenticated SSO account. When masterPassword
+// is non-empty, it also unlocks the vault (required on hosts without an OS
+// keyring so the refresh token can be sealed) and returns a session key.
+func (l *SSOLogin) Commit(ctx context.Context, masterPassword []byte) (string, error) {
+	if l.tok == nil {
+		return "", errors.New("profile: SSO login has not authenticated yet")
+	}
+	if !l.p.HasKeyring() && len(masterPassword) == 0 {
+		return "", ErrPasswordRequiredNoKeyring
+	}
+	if err := l.checkUnchanged(); err != nil {
+		return "", err
+	}
+	kdf := l.tok.MasterPasswordKDF()
+	rawSalt := l.tok.MasterPasswordSalt()
+	var userKey *crypto.SymmetricKey
+	if len(masterPassword) > 0 {
+		protectedKey := l.tok.MasterPasswordProtectedKey()
+		deriveSalt := rawSalt
+		if protectedKey == "" || deriveSalt == "" || kdf.Iterations == 0 {
+			syncResp, _, err := l.client.Sync(ctx, l.tok.AccessToken)
+			if err != nil {
+				return "", err
+			}
+			if protectedKey == "" {
+				protectedKey = syncResp.Profile.Key
+			}
+			if deriveSalt == "" {
+				deriveSalt = crypto.NormalizeEmail(syncResp.Profile.Email)
+			}
+			if kdf.Iterations == 0 {
+				kdf = crypto.KDFConfig{Type: crypto.KDFType(syncResp.Profile.KDF), Iterations: uint32(syncResp.Profile.KDFIters)}
+				if syncResp.Profile.KDFMemory != nil {
+					kdf.MemoryMB = uint32(*syncResp.Profile.KDFMemory)
+				}
+				if syncResp.Profile.KDFParallel != nil {
+					kdf.Parallelism = uint32(*syncResp.Profile.KDFParallel)
+				}
+			}
+		}
+		if protectedKey == "" {
+			return "", ErrSSOMasterPasswordRequired
+		}
+		mk, err := crypto.DeriveKeyFromPassword(masterPassword, deriveSalt, kdf)
+		if err != nil {
+			return "", err
+		}
+		defer crypto.ZeroBytes(mk[:])
+		uk, err := crypto.DecryptUserKey(protectedKey, mk)
+		if err != nil {
+			return "", ErrInvalidPassword
+		}
+		defer uk.Zero()
+		userKey = uk
+	}
+	return l.p.commitLogin(ctx, l.ps, loginResult{
+		endpoints: l.endpoints, client: l.client, token: l.tok, grant: GrantSSO,
+		kdfSalt: rawSalt, kdf: kdf, userKey: userKey,
+	})
+}
+
+// Complete runs Authenticate followed by Commit without unlocking.
+func (l *SSOLogin) Complete(ctx context.Context, twoFactor *api.TwoFactorLogin) error {
+	if err := l.Authenticate(ctx, twoFactor); err != nil {
+		return err
+	}
+	_, err := l.Commit(ctx, nil)
+	return err
+}
+
 // LoginAPIKey signs in with a personal API key. The key cannot decrypt the
 // vault, so the vault stays locked until Unlock. Without a credential store
 // the key is not kept; Unlock can take it again to keep it encrypted.
@@ -148,8 +342,9 @@ type loginResult struct {
 	token     *api.TokenResponse
 	grant     string
 	email     string
+	kdfSalt   string
 	kdf       crypto.KDFConfig
-	userKey   *crypto.SymmetricKey // nil for an API key login
+	userKey   *crypto.SymmetricKey // nil for an API key or locked SSO login
 	apiKey    *APIKey
 }
 
@@ -193,16 +388,26 @@ func (p *Profile) commitLogin(ctx context.Context, startPS *profileState, r logi
 	if r.apiKey != nil {
 		creds.ClientID, creds.ClientSecret = r.apiKey.ClientID, r.apiKey.ClientSecret
 	}
-	protectedKey := syncResp.Profile.Key
+	protectedKey := r.token.MasterPasswordProtectedKey()
 	if protectedKey == "" {
-		protectedKey = r.token.Key
+		protectedKey = syncResp.Profile.Key
 	}
 	if protectedKey == "" {
-		return "", errors.New("profile: the server sent no master-password-wrapped key; this account cannot be unlocked with a master password")
+		return "", ErrSSOMasterPasswordRequired
+	}
+	kdf := r.kdf
+	if kdf.Iterations == 0 {
+		kdf = crypto.KDFConfig{Type: crypto.KDFType(syncResp.Profile.KDF), Iterations: uint32(syncResp.Profile.KDFIters)}
+		if syncResp.Profile.KDFMemory != nil {
+			kdf.MemoryMB = uint32(*syncResp.Profile.KDFMemory)
+		}
+		if syncResp.Profile.KDFParallel != nil {
+			kdf.Parallelism = uint32(*syncResp.Profile.KDFParallel)
+		}
 	}
 	snap := &store.Snapshot{
 		SchemaVersion: store.CurrentSchemaVersion, AccountID: sub, ServerURL: r.endpoints.API, Email: email,
-		KDF: r.kdf, ProtectedKey: protectedKey, RevisionDate: revDate, LastSyncAt: now, RawSyncJSON: json.RawMessage(rawSync),
+		KDFSalt: r.kdfSalt, KDF: kdf, ProtectedKey: protectedKey, RevisionDate: revDate, LastSyncAt: now, RawSyncJSON: json.RawMessage(rawSync),
 	}
 	var session string
 	err = p.exclusive(func() error {
@@ -219,7 +424,7 @@ func (p *Profile) commitLogin(ctx context.Context, startPS *profileState, r logi
 		if err != nil {
 			return err
 		}
-		if ps.Generation != startPS.Generation || ps.Server != startPS.Server {
+		if ps.Generation != startPS.Generation || ps.Server != startPS.Server || ps.Overrides != startPS.Overrides {
 			return ErrStale
 		}
 		// The account is journaled as pending before anything else is

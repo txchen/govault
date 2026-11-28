@@ -43,8 +43,13 @@ var (
 	// the one this account signed in to its server with, so it is not
 	// sent there.
 	ErrUntrustedServer = errors.New("profile: the API key was not used to sign in to this account's server; log in with it again")
-	ErrStale           = errors.New("profile: the profile changed while the request was running")
-	ErrLogoutRequired  = errors.New("profile: log out before changing the server")
+	ErrStale                       = errors.New("profile: the profile changed while the request was running")
+	ErrLogoutRequired              = errors.New("profile: log out before changing the server")
+	ErrSSOMasterPasswordRequired   = errors.New("profile: this SSO account has no master password yet; set one in the web vault first")
+	ErrSSOForcePasswordReset       = errors.New("profile: your organization requires a master password reset; reset it in the web vault first")
+	ErrSSOKeyConnectorUnsupported  = errors.New("profile: SSO with Key Connector is not supported yet")
+	ErrSSOTrustedDeviceUnsupported = errors.New("profile: SSO with Trusted Device Encryption is not supported yet")
+	ErrPasswordRequiredNoKeyring   = errors.New("profile: master password is required to save SSO credentials on a system without a credential store")
 )
 
 // AlreadyLoggedInError reports an attempt to log in over an account.
@@ -64,6 +69,7 @@ const (
 
 	GrantPassword = "password"
 	GrantAPIKey   = "apikey"
+	GrantSSO      = "sso"
 
 	backendKeyring = "keyring"
 	backendFile    = "file"
@@ -264,6 +270,25 @@ func (p *Profile) Server() (string, error) {
 	return server, err
 }
 
+// WebVaultURL returns the configured web vault URL for browser flows such
+// as SSO, respecting any --web-vault override.
+func (p *Profile) WebVaultURL() (string, error) {
+	var webVault string
+	err := p.shared(func() error {
+		ps, err := p.loadProfile()
+		if err != nil {
+			return err
+		}
+		if ps.Overrides.WebVault != "" {
+			webVault = ps.Overrides.WebVault
+		} else {
+			webVault = api.WebVaultURL(ps.Server)
+		}
+		return nil
+	})
+	return webVault, err
+}
+
 // SetServer configures the server while logged out; base is a URL from
 // api.FormatServerURL.
 func (p *Profile) SetServer(base string) error { return p.SetServerURLs(base, ServiceURLs{}) }
@@ -283,6 +308,9 @@ func (p *Profile) SetServerURLs(base string, overrides ServiceURLs) error {
 		ps, err := p.loadProfile()
 		if err != nil {
 			return err
+		}
+		if ps.Server != base || ps.Overrides != overrides {
+			ps.Generation++
 		}
 		ps.Server, ps.Overrides = base, overrides
 		return p.saveProfile(ps)

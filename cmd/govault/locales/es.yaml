@@ -43,6 +43,12 @@ signIn: Iniciar sesión
 backToUnlock: Volver a desbloquear
 signInFootnote: Cifrado de extremo a extremo. Tu contraseña maestra nunca sale de este dispositivo.
 signInFieldsRequired: La URL del servidor, el correo electrónico y la contraseña maestra son obligatorios.
+signInWithSSO: Iniciar sesión con SSO
+orSignInWith: o
+ssoServerRequired: Se requiere la URL del servidor para iniciar sesión con SSO.
+ssoWaitingTitle: Completa el inicio de sesión en tu navegador
+ssoWaitingDetail: Completa el inicio de sesión único en la ventana del navegador que se abrió y vuelve a GoVault.
+ssoOpenBrowserAgain: Volver a abrir el navegador
 togglePasswordVisibility: Mostrar u ocultar contraseña
 
 # Two-step login
@@ -698,6 +704,12 @@ errorUnsupportedUpload: El servidor solicitó una carga de adjunto no compatible
 errorServerMismatch: El inicio de sesión guardado pertenece a un servidor distinto al de esta copia. Inicia sesión de nuevo.
 errorSignInRequired: Inicia sesión de nuevo para sincronizar. Mientras tanto tu caja fuerte está disponible sin conexión.
 errorDifferentAccount: Esto inicia sesión en una cuenta distinta a la de la caja fuerte en este dispositivo. Para cambiar de cuenta, cierra sesión primero.
+errorSSOMasterPasswordRequired: Esta cuenta SSO aún no tiene contraseña maestra. Configura una primero en la caja fuerte web.
+errorSSOForcePasswordReset: Tu organización requiere restablecer la contraseña maestra. Restablécela primero en la caja fuerte web.
+errorSSOKeyConnectorUnsupported: SSO con Key Connector aún no es compatible.
+errorSSOTrustedDeviceUnsupported: SSO con cifrado de dispositivo de confianza aún no es compatible.
+errorSSOCallbackPortUnavailable: No se pudo iniciar la escucha local de SSO (los puertos 8065–8070 están en uso).
+errorSSOStateMismatch: No se pudo verificar la respuesta de SSO. Intenta iniciar sesión de nuevo.
 errorAccountChanged: La cuenta cambió desde que se confirmó. Inténtalo de nuevo.
 errorSnapshotNotUpdated: El servidor tiene el cambio, pero no se pudo actualizar la copia en este dispositivo. Sincroniza para actualizarla.
 errorSealedField: Este elemento contiene datos cifrados que GoVault no puede copiar a una nueva clave.

@@ -1829,6 +1829,12 @@ const (
 	textBackToUnlock
 	textSignInFootnote
 	textSignInFieldsRequired
+	textSignInWithSSO
+	textOrSignInWith
+	textSsoServerRequired
+	textSsoWaitingTitle
+	textSsoWaitingDetail
+	textSsoOpenBrowserAgain
 	textTogglePasswordVisibility
 	textTwoFactorTitle
 	textTwoFactorEnterEmailCode
@@ -2326,6 +2332,12 @@ const (
 	textErrorServerMismatch
 	textErrorSignInRequired
 	textErrorDifferentAccount
+	textErrorSSOMasterPasswordRequired
+	textErrorSSOForcePasswordReset
+	textErrorSSOKeyConnectorUnsupported
+	textErrorSSOTrustedDeviceUnsupported
+	textErrorSSOCallbackPortUnavailable
+	textErrorSSOStateMismatch
 	textErrorAccountChanged
 	textErrorSnapshotNotUpdated
 	textErrorSealedField
@@ -2403,6 +2415,12 @@ var keyOfText = [numTexts]string{
 	"backToUnlock",
 	"signInFootnote",
 	"signInFieldsRequired",
+	"signInWithSSO",
+	"orSignInWith",
+	"ssoServerRequired",
+	"ssoWaitingTitle",
+	"ssoWaitingDetail",
+	"ssoOpenBrowserAgain",
 	"togglePasswordVisibility",
 	"twoFactorTitle",
 	"twoFactorEnterEmailCode",
@@ -2900,6 +2918,12 @@ var keyOfText = [numTexts]string{
 	"errorServerMismatch",
 	"errorSignInRequired",
 	"errorDifferentAccount",
+	"errorSSOMasterPasswordRequired",
+	"errorSSOForcePasswordReset",
+	"errorSSOKeyConnectorUnsupported",
+	"errorSSOTrustedDeviceUnsupported",
+	"errorSSOCallbackPortUnavailable",
+	"errorSSOStateMismatch",
 	"errorAccountChanged",
 	"errorSnapshotNotUpdated",
 	"errorSealedField",
@@ -2975,6 +2999,12 @@ var textsEn = i18n.NewTexts(""+
 	"Back to Unlock"+
 	"End-to-end encrypted. Your master password never leaves this device."+
 	"Server URL, email, and master password are required."+
+	"Sign in with SSO"+
+	"or"+
+	"Server URL is required to sign in with SSO."+
+	"Complete sign-in in your browser"+
+	"Finish single sign-on in the browser window that opened, then return to GoVault."+
+	"Open browser again"+
 	"Toggle password visibility"+
 	"Two-step verification"+
 	"Enter the code sent to your email."+
@@ -3472,6 +3502,12 @@ var textsEn = i18n.NewTexts(""+
 	"The saved sign-in belongs to a different server than this vault copy. Sign in again."+
 	"Sign in again to sync. Your vault is available offline until then."+
 	"This signs in to a different account than the vault on this device. To use a different account, log out first."+
+	"This SSO account does not have a master password yet. Set one in the web vault first."+
+	"Your organization requires a master password reset. Reset your master password in the web vault first."+
+	"SSO with Key Connector is not supported yet."+
+	"SSO with Trusted Device Encryption is not supported yet."+
+	"Could not start the local SSO callback listener (ports 8065–8070 are in use)."+
+	"The SSO callback could not be verified. Try signing in again."+
 	"The account changed since this was confirmed. Try again."+
 	"The server has the change, but the copy on this device could not be updated. Sync to refresh it."+
 	"This item holds encrypted data GoVault cannot copy to a new key."+
@@ -3544,6 +3580,12 @@ var textsEn = i18n.NewTexts(""+
 		14,
 		68,
 		52,
+		16,
+		2,
+		43,
+		32,
+		80,
+		18,
 		26,
 		21,
 		34,
@@ -4041,6 +4083,12 @@ var textsEn = i18n.NewTexts(""+
 		84,
 		66,
 		110,
+		85,
+		102,
+		44,
+		56,
+		79,
+		61,
 		56,
 		96,
 		64,
@@ -4116,6 +4164,12 @@ var textsDe = i18n.NewTexts(""+
 	"Zurück zum Entsperren"+
 	"Ende-zu-Ende-verschlüsselt. Dein Master-Passwort verlässt dieses Gerät nie."+
 	"Server-URL, E-Mail und Master-Passwort sind erforderlich."+
+	"Mit SSO anmelden"+
+	"oder"+
+	"Für die Anmeldung mit SSO ist eine Server-URL erforderlich."+
+	"Anmeldung im Browser abschließen"+
+	"Schließe das Single Sign-On im geöffneten Browserfenster ab und kehre dann zu GoVault zurück."+
+	"Browser erneut öffnen"+
 	"Passwort ein- oder ausblenden"+
 	"Bestätigung in zwei Schritten"+
 	"Gib den Code ein, der an deine E-Mail gesendet wurde."+
@@ -4613,6 +4667,12 @@ var textsDe = i18n.NewTexts(""+
 	"Die gespeicherte Anmeldung gehört zu einem anderen Server als diese Tresorkopie. Melde dich erneut an."+
 	"Zum Synchronisieren erneut anmelden. Bis dahin ist dein Tresor offline verfügbar."+
 	"Diese Anmeldung gehört zu einem anderen Konto als der Tresor auf diesem Gerät. Melde dich zuerst ab, um das Konto zu wechseln."+
+	"Dieses SSO-Konto hat noch kein Master-Passwort. Lege zuerst im Web-Tresor eines fest."+
+	"Deine Organisation erfordert das Zurücksetzen des Master-Passworts. Setze es zuerst im Web-Tresor zurück."+
+	"SSO mit Key Connector wird noch nicht unterstützt."+
+	"SSO mit Trusted Device Encryption wird noch nicht unterstützt."+
+	"Der lokale SSO-Callback-Listener konnte nicht gestartet werden (Ports 8065–8070 sind belegt)."+
+	"Der SSO-Callback konnte nicht überprüft werden. Versuche dich erneut anzumelden."+
 	"Das Konto hat sich seit der Bestätigung geändert. Versuche es erneut."+
 	"Der Server hat die Änderung, aber die lokale Kopie konnte nicht aktualisiert werden. Synchronisiere zum Aktualisieren."+
 	"Dieser Eintrag enthält verschlüsselte Daten, die GoVault nicht auf einen neuen Schlüssel kopieren kann."+
@@ -4685,6 +4745,12 @@ var textsDe = i18n.NewTexts(""+
 		22,
 		78,
 		57,
+		16,
+		4,
+		60,
+		33,
+		96,
+		22,
 		29,
 		30,
 		53,
@@ -5182,6 +5248,12 @@ var textsDe = i18n.NewTexts(""+
 		103,
 		82,
 		128,
+		85,
+		107,
+		51,
+		63,
+		95,
+		82,
 		71,
 		119,
 		106,
@@ -5257,6 +5329,12 @@ var textsEs = i18n.NewTexts(""+
 	"Volver a desbloquear"+
 	"Cifrado de extremo a extremo. Tu contraseña maestra nunca sale de este dispositivo."+
 	"La URL del servidor, el correo electrónico y la contraseña maestra son obligatorios."+
+	"Iniciar sesión con SSO"+
+	"o"+
+	"Se requiere la URL del servidor para iniciar sesión con SSO."+
+	"Completa el inicio de sesión en tu navegador"+
+	"Completa el inicio de sesión único en la ventana del navegador que se abrió y vuelve a GoVault."+
+	"Volver a abrir el navegador"+
 	"Mostrar u ocultar contraseña"+
 	"Verificación en dos pasos"+
 	"Introduce el código enviado a tu correo electrónico."+
@@ -5754,6 +5832,12 @@ var textsEs = i18n.NewTexts(""+
 	"El inicio de sesión guardado pertenece a un servidor distinto al de esta copia. Inicia sesión de nuevo."+
 	"Inicia sesión de nuevo para sincronizar. Mientras tanto tu caja fuerte está disponible sin conexión."+
 	"Esto inicia sesión en una cuenta distinta a la de la caja fuerte en este dispositivo. Para cambiar de cuenta, cierra sesión primero."+
+	"Esta cuenta SSO aún no tiene contraseña maestra. Configura una primero en la caja fuerte web."+
+	"Tu organización requiere restablecer la contraseña maestra. Restablécela primero en la caja fuerte web."+
+	"SSO con Key Connector aún no es compatible."+
+	"SSO con cifrado de dispositivo de confianza aún no es compatible."+
+	"No se pudo iniciar la escucha local de SSO (los puertos 8065–8070 están en uso)."+
+	"No se pudo verificar la respuesta de SSO. Intenta iniciar sesión de nuevo."+
 	"La cuenta cambió desde que se confirmó. Inténtalo de nuevo."+
 	"El servidor tiene el cambio, pero no se pudo actualizar la copia en este dispositivo. Sincroniza para actualizarla."+
 	"Este elemento contiene datos cifrados que GoVault no puede copiar a una nueva clave."+
@@ -5826,6 +5910,12 @@ var textsEs = i18n.NewTexts(""+
 		20,
 		84,
 		86,
+		23,
+		1,
+		61,
+		45,
+		98,
+		27,
 		29,
 		26,
 		54,
@@ -6323,6 +6413,12 @@ var textsEs = i18n.NewTexts(""+
 		105,
 		103,
 		134,
+		95,
+		106,
+		44,
+		66,
+		83,
+		75,
 		62,
 		115,
 		84,
@@ -6398,6 +6494,12 @@ var textsFr = i18n.NewTexts(""+
 	"Retour au déverrouillage"+
 	"Chiffrement de bout en bout. Votre mot de passe principal ne quitte jamais cet appareil."+
 	"L’URL du serveur, l’adresse e-mail et le mot de passe principal sont requis."+
+	"Se connecter avec SSO"+
+	"ou"+
+	"L’URL du serveur est requise pour la connexion SSO."+
+	"Terminez la connexion dans votre navigateur"+
+	"Terminez l’authentification unique dans la fenêtre de navigateur ouverte, puis revenez dans GoVault."+
+	"Rouvrir le navigateur"+
 	"Afficher ou masquer le mot de passe"+
 	"Vérification en deux étapes"+
 	"Saisissez le code envoyé à votre adresse e-mail."+
@@ -6895,6 +6997,12 @@ var textsFr = i18n.NewTexts(""+
 	"La connexion enregistrée correspond à un autre serveur que cette copie du coffre. Reconnectez-vous."+
 	"Reconnectez-vous pour synchroniser. Votre coffre reste accessible hors ligne en attendant."+
 	"Cette connexion correspond à un autre compte que le coffre sur cet appareil. Déconnectez-vous d’abord pour changer de compte."+
+	"Ce compte SSO n’a pas encore de mot de passe principal. Définissez-en un d’abord dans le coffre web."+
+	"Votre organisation exige la réinitialisation du mot de passe principal. Réinitialisez-le d’abord dans le coffre web."+
+	"La connexion SSO avec Key Connector n’est pas encore prise en charge."+
+	"La connexion SSO avec chiffrement d’appareil de confiance n’est pas encore prise en charge."+
+	"Impossible de démarrer l’écoute locale SSO (les ports 8065–8070 sont utilisés)."+
+	"Impossible de vérifier le retour SSO. Essayez de vous reconnecter."+
 	"Le compte a changé depuis la confirmation. Réessayez."+
 	"Le serveur a enregistré la modification, mais la copie locale n’a pas pu être mise à jour. Synchronisez pour actualiser."+
 	"Cet élément contient des données chiffrées que GoVault ne peut pas copier vers une nouvelle clé."+
@@ -6967,6 +7075,12 @@ var textsFr = i18n.NewTexts(""+
 		25,
 		88,
 		80,
+		21,
+		2,
+		53,
+		43,
+		103,
+		21,
 		35,
 		29,
 		50,
@@ -7464,6 +7578,12 @@ var textsFr = i18n.NewTexts(""+
 		101,
 		90,
 		129,
+		105,
+		120,
+		71,
+		95,
+		86,
+		67,
 		55,
 		125,
 		101,
@@ -7539,6 +7659,12 @@ var textsJa = i18n.NewTexts(""+
 	"ロック解除に戻る"+
 	"エンドツーエンド暗号化。マスターパスワードがこのデバイスから外部に送信されることはありません。"+
 	"サーバー URL、メールアドレス、マスターパスワードを入力してください。"+
+	"SSO でサインイン"+
+	"または"+
+	"SSO でサインインするにはサーバー URL が必要です。"+
+	"ブラウザーでサインインを完了してください"+
+	"開いたブラウザーウィンドウでシングルサインオンを完了してから、GoVault に戻ってください。"+
+	"ブラウザーをもう一度開く"+
 	"パスワードの表示を切り替え"+
 	"2段階認証"+
 	"メールで送信された認証コードを入力してください。"+
@@ -8036,6 +8162,12 @@ var textsJa = i18n.NewTexts(""+
 	"保存されたログイン情報は、この保管庫コピーとは異なるサーバーのものです。再ログインしてください。"+
 	"同期するには再ログインしてください。それまではオフラインで保管庫を利用できます。"+
 	"このログインはこのデバイス上の保管庫とは別のアカウントです。別のアカウントを使うには先にログアウトしてください。"+
+	"この SSO アカウントにはまだマスターパスワードが設定されていません。先にウェブ保管庫で設定してください。"+
+	"所属組織によりマスターパスワードのリセットが必要です。先にウェブ保管庫でリセットしてください。"+
+	"Key Connector を使用した SSO はまだサポートされていません。"+
+	"信頼済みデバイス暗号化を使用した SSO はまだサポートされていません。"+
+	"ローカルの SSO コールバック待受を開始できませんでした（ポート 8065–8070 が使用中です）。"+
+	"SSO コールバックを検証できませんでした。もう一度サインインしてください。"+
 	"確認後にアカウントが変更されました。やり直してください。"+
 	"サーバーには変更が保存されましたが、このデバイスのコピーを更新できませんでした。同期して更新してください。"+
 	"このアイテムには、GoVault が新しい鍵へコピーできない暗号化データが含まれています。"+
@@ -8108,6 +8240,12 @@ var textsJa = i18n.NewTexts(""+
 		24,
 		141,
 		100,
+		22,
+		9,
+		69,
+		60,
+		128,
+		36,
 		39,
 		13,
 		72,
@@ -8605,6 +8743,12 @@ var textsJa = i18n.NewTexts(""+
 		144,
 		120,
 		168,
+		152,
+		141,
+		79,
+		98,
+		126,
+		106,
 		84,
 		159,
 		119,
@@ -8680,6 +8824,12 @@ var textsKo = i18n.NewTexts(""+
 	"잠금 해제로 돌아가기"+
 	"종단간 암호화. 마스터 비밀번호는 이 기기를 떠나지 않습니다."+
 	"서버 URL, 이메일, 마스터 비밀번호를 모두 입력하세요."+
+	"SSO로 로그인"+
+	"또는"+
+	"SSO로 로그인하려면 서버 URL이 필요합니다."+
+	"브라우저에서 로그인을 완료하세요"+
+	"열린 브라우저 창에서 싱글 사인온을 완료한 뒤 GoVault로 돌아오세요."+
+	"브라우저 다시 열기"+
 	"비밀번호 표시 전환"+
 	"2단계 인증"+
 	"이메일로 전송된 인증 코드를 입력하세요."+
@@ -9177,6 +9327,12 @@ var textsKo = i18n.NewTexts(""+
 	"저장된 로그인 정보가 이 보관함 사본과 다른 서버의 것입니다. 다시 로그인하세요."+
 	"동기화하려면 다시 로그인하세요. 그전까지 보관함을 오프라인으로 사용할 수 있습니다."+
 	"이 기기의 보관함과 다른 계정으로 로그인했습니다. 다른 계정을 사용하려면 먼저 로그아웃하세요."+
+	"이 SSO 계정에는 아직 마스터 비밀번호가 설정되어 있지 않습니다. 먼저 웹 보관함에서 설정하세요."+
+	"조직에서 마스터 비밀번호 재설정을 요구합니다. 먼저 웹 보관함에서 마스터 비밀번호를 재설정하세요."+
+	"Key Connector를 사용하는 SSO는 아직 지원하지 않습니다."+
+	"신뢰할 수 있는 기기 암호화를 사용하는 SSO는 아직 지원하지 않습니다."+
+	"로컬 SSO 콜백 리스너를 시작할 수 없습니다(포트 8065–8070 사용 중)."+
+	"SSO 콜백을 확인할 수 없습니다. 다시 로그인해 보세요."+
 	"확인 이후 계정이 변경되었습니다. 다시 시도하세요."+
 	"서버에는 변경 사항이 저장되었지만 이 기기의 사본을 업데이트하지 못했습니다. 동기화하여 새로 고치세요."+
 	"이 항목에는 GoVault가 새 키로 복사할 수 없는 암호화 데이터가 포함되어 있습니다."+
@@ -9249,6 +9405,12 @@ var textsKo = i18n.NewTexts(""+
 		29,
 		84,
 		72,
+		16,
+		6,
+		56,
+		47,
+		91,
+		26,
 		26,
 		14,
 		56,
@@ -9746,6 +9908,12 @@ var textsKo = i18n.NewTexts(""+
 		111,
 		118,
 		132,
+		131,
+		138,
+		70,
+		94,
+		89,
+		72,
 		70,
 		145,
 		109,
@@ -9821,6 +9989,12 @@ var textsPtBR = i18n.NewTexts(""+
 	"Voltar ao desbloqueio"+
 	"Criptografia de ponta a ponta. Sua senha principal nunca sai deste dispositivo."+
 	"URL do servidor, e-mail e senha principal são obrigatórios."+
+	"Entrar com SSO"+
+	"ou"+
+	"A URL do servidor é obrigatória para entrar com SSO."+
+	"Conclua o login no navegador"+
+	"Conclua o login único na janela do navegador aberta e retorne ao GoVault."+
+	"Abrir navegador novamente"+
 	"Mostrar ou ocultar senha"+
 	"Verificação em duas etapas"+
 	"Digite o código enviado para seu e-mail."+
@@ -10318,6 +10492,12 @@ var textsPtBR = i18n.NewTexts(""+
 	"O login salvo pertence a um servidor diferente desta cópia do cofre. Entre novamente."+
 	"Entre novamente para sincronizar. Até lá, seu cofre continua disponível offline."+
 	"Este login é de uma conta diferente da do cofre neste dispositivo. Para trocar de conta, saia primeiro."+
+	"Esta conta SSO ainda não tem uma senha principal. Defina uma primeiro no cofre web."+
+	"Sua organização exige a redefinição da senha principal. Redefina-a primeiro no cofre web."+
+	"SSO com Key Connector ainda não é compatível."+
+	"SSO com criptografia de dispositivo confiável ainda não é compatível."+
+	"Não foi possível iniciar o retorno local de SSO (as portas 8065–8070 estão em uso)."+
+	"Não foi possível verificar o retorno do SSO. Tente entrar novamente."+
 	"A conta mudou desde a confirmação. Tente novamente."+
 	"O servidor tem a alteração, mas a cópia neste dispositivo não pôde ser atualizada. Sincronize para atualizar."+
 	"Este item contém dados criptografados que o GoVault não pode copiar para uma nova chave."+
@@ -10390,6 +10570,12 @@ var textsPtBR = i18n.NewTexts(""+
 		21,
 		79,
 		61,
+		14,
+		2,
+		54,
+		28,
+		74,
+		25,
 		24,
 		28,
 		41,
@@ -10887,6 +11073,12 @@ var textsPtBR = i18n.NewTexts(""+
 		86,
 		83,
 		104,
+		84,
+		93,
+		48,
+		73,
+		88,
+		70,
 		53,
 		114,
 		90,
@@ -10962,6 +11154,12 @@ var textsRu = i18n.NewTexts(""+
 	"Назад к разблокировке"+
 	"Сквозное шифрование. Мастер-пароль никогда не покидает это устройство."+
 	"Укажите URL сервера, эл. почту и мастер-пароль."+
+	"Войти через SSO"+
+	"или"+
+	"Для входа через SSO укажите URL сервера."+
+	"Завершите вход в браузере"+
+	"Пройдите единый вход в открывшемся окне браузера, затем вернитесь в GoVault."+
+	"Открыть браузер снова"+
 	"Показать или скрыть пароль"+
 	"Двухэтапная проверка"+
 	"Введите код, отправленный на вашу эл. почту."+
@@ -11459,6 +11657,12 @@ var textsRu = i18n.NewTexts(""+
 	"Сохранённый вход относится к другому серверу. Войдите снова."+
 	"Войдите снова для синхронизации. Пока хранилище доступно офлайн."+
 	"Этот вход относится к другому аккаунту. Чтобы сменить аккаунт, сначала выйдите."+
+	"Для этого аккаунта SSO ещё не задан мастер-пароль. Сначала задайте его в веб-хранилище."+
+	"Ваша организация требует сбросить мастер-пароль. Сначала сбросьте его в веб-хранилище."+
+	"Вход через SSO с Key Connector пока не поддерживается."+
+	"Вход через SSO с шифрованием доверенных устройств пока не поддерживается."+
+	"Не удалось запустить локальный обработчик SSO (порты 8065–8070 заняты)."+
+	"Не удалось проверить ответ SSO. Попробуйте войти снова."+
 	"Аккаунт изменился после подтверждения. Повторите попытку."+
 	"Сервер сохранил изменение, но локальную копию обновить не удалось. Синхронизируйте для обновления."+
 	"Этот элемент содержит зашифрованные данные, которые GoVault не может перенести под новый ключ."+
@@ -11531,6 +11735,12 @@ var textsRu = i18n.NewTexts(""+
 		40,
 		130,
 		81,
+		25,
+		6,
+		67,
+		47,
+		133,
+		40,
 		49,
 		39,
 		79,
@@ -12028,6 +12238,12 @@ var textsRu = i18n.NewTexts(""+
 		111,
 		119,
 		145,
+		155,
+		159,
+		84,
+		133,
+		121,
+		98,
 		107,
 		182,
 		167,
@@ -12103,6 +12319,12 @@ var textsZhHans = i18n.NewTexts(""+
 	"返回解锁"+
 	"端到端加密。你的主密码绝不会离开此设备。"+
 	"请填写服务器 URL、电子邮箱和主密码。"+
+	"使用 SSO 登录"+
+	"或"+
+	"使用 SSO 登录需要填写服务器 URL。"+
+	"请在浏览器中完成登录"+
+	"在已打开的浏览器窗口中完成单点登录，然后返回 GoVault。"+
+	"重新打开浏览器"+
 	"切换密码显示"+
 	"两步验证"+
 	"请输入发送至你电子邮箱的验证码。"+
@@ -12600,6 +12822,12 @@ var textsZhHans = i18n.NewTexts(""+
 	"已保存的登录凭据属于与当前密码库副本不同的服务器，请重新登录。"+
 	"请重新登录以进行同步。在此之前，你的密码库可离线使用。"+
 	"当前登录的账户与此设备上的密码库不匹配。如需切换账户，请先退出登录。"+
+	"此 SSO 账户尚未设置主密码。请先在网页端密码库中设置主密码。"+
+	"您的组织要求重置主密码。请先在网页端密码库中重置主密码。"+
+	"暂不支持搭配 Key Connector 使用 SSO。"+
+	"暂不支持搭配受信任设备加密使用 SSO。"+
+	"无法启动本地 SSO 回调监听（端口 8065–8070 均被占用）。"+
+	"无法验证 SSO 回调状态，请重新尝试登录。"+
 	"自确认以来账户已更改，请重试。"+
 	"服务器已保存更改，但无法更新此设备上的副本。请同步以刷新。"+
 	"此项目包含加密数据，GoVault 无法将其复制到新密钥下。"+
@@ -12672,6 +12900,12 @@ var textsZhHans = i18n.NewTexts(""+
 		12,
 		60,
 		52,
+		17,
+		3,
+		45,
+		30,
+		77,
+		21,
 		18,
 		12,
 		48,
@@ -13169,6 +13403,12 @@ var textsZhHans = i18n.NewTexts(""+
 		93,
 		81,
 		102,
+		86,
+		84,
+		46,
+		52,
+		75,
+		56,
 		45,
 		87,
 		74,
@@ -13244,6 +13484,12 @@ var textsZhHant = i18n.NewTexts(""+
 	"返回解鎖"+
 	"端對端加密。您的主密碼絕不會離開此裝置。"+
 	"請填寫伺服器 URL、電子郵件與主密碼。"+
+	"使用 SSO 登入"+
+	"或"+
+	"使用 SSO 登入需要填寫伺服器 URL。"+
+	"請在瀏覽器中完成登入"+
+	"在已開啟的瀏覽器視窗中完成單一登入，然後返回 GoVault。"+
+	"重新開啟瀏覽器"+
 	"切換密碼顯示"+
 	"兩步驟驗證"+
 	"請輸入傳送至您電子郵件的驗證碼。"+
@@ -13741,6 +13987,12 @@ var textsZhHant = i18n.NewTexts(""+
 	"已儲存的登入憑證屬於與目前密碼庫副本不同的伺服器，請重新登入。"+
 	"請重新登入以進行同步。在此之前，您的密碼庫可離線使用。"+
 	"目前登入的帳戶與此裝置上的密碼庫不符。若要切換帳戶，請先登出。"+
+	"此 SSO 帳戶尚未設定主密碼。請先在網頁端密碼庫中設定主密碼。"+
+	"您的組織要求重設主密碼。請先在網頁端密碼庫中重設主密碼。"+
+	"暫不支援搭配 Key Connector 使用 SSO。"+
+	"暫不支援搭配受信任裝置加密使用 SSO。"+
+	"無法啟動本機 SSO 回呼監聽（連接埠 8065–8070 均被佔用）。"+
+	"無法驗證 SSO 回呼狀態，請重新嘗試登入。"+
 	"自確認以來帳戶已變更，請重試。"+
 	"伺服器已儲存變更，但無法更新此裝置上的副本。請同步以重新整理。"+
 	"此項目包含加密資料，GoVault 無法將其複製至新金鑰下。"+
@@ -13813,6 +14065,12 @@ var textsZhHant = i18n.NewTexts(""+
 		12,
 		60,
 		52,
+		17,
+		3,
+		45,
+		30,
+		77,
+		21,
 		18,
 		15,
 		48,
@@ -14310,6 +14568,12 @@ var textsZhHant = i18n.NewTexts(""+
 		93,
 		81,
 		93,
+		86,
+		84,
+		46,
+		52,
+		78,
+		56,
 		45,
 		93,
 		74,
@@ -15065,6 +15329,52 @@ func SignInFieldsRequired(cx *core.Scope) string { return For(cx).SignInFieldsRe
 
 // SignInFieldsRequired is the package's SignInFieldsRequired in the language of msgs.
 func (msgs Messages) SignInFieldsRequired() string { return msgs.text(textSignInFieldsRequired) }
+
+// SignInWithSSO says "Sign in with SSO"
+// in the language the app shows under cx.
+//
+// The secondary button on the sign-in screen that starts single sign-on in the browser.
+func SignInWithSSO(cx *core.Scope) string { return For(cx).SignInWithSSO() }
+
+// SignInWithSSO is the package's SignInWithSSO in the language of msgs.
+func (msgs Messages) SignInWithSSO() string { return msgs.text(textSignInWithSSO) }
+
+// OrSignInWith says "or"
+// in the language the app shows under cx.
+//
+// Short divider word between password sign-in and SSO sign-in buttons.
+func OrSignInWith(cx *core.Scope) string { return For(cx).OrSignInWith() }
+
+// OrSignInWith is the package's OrSignInWith in the language of msgs.
+func (msgs Messages) OrSignInWith() string { return msgs.text(textOrSignInWith) }
+
+// SsoServerRequired says "Server URL is required to sign in with SSO."
+// in the language the app shows under cx.
+func SsoServerRequired(cx *core.Scope) string { return For(cx).SsoServerRequired() }
+
+// SsoServerRequired is the package's SsoServerRequired in the language of msgs.
+func (msgs Messages) SsoServerRequired() string { return msgs.text(textSsoServerRequired) }
+
+// SsoWaitingTitle says "Complete sign-in in your browser"
+// in the language the app shows under cx.
+func SsoWaitingTitle(cx *core.Scope) string { return For(cx).SsoWaitingTitle() }
+
+// SsoWaitingTitle is the package's SsoWaitingTitle in the language of msgs.
+func (msgs Messages) SsoWaitingTitle() string { return msgs.text(textSsoWaitingTitle) }
+
+// SsoWaitingDetail says "Finish single sign-on in the browser window that opened, then return to GoVault."
+// in the language the app shows under cx.
+func SsoWaitingDetail(cx *core.Scope) string { return For(cx).SsoWaitingDetail() }
+
+// SsoWaitingDetail is the package's SsoWaitingDetail in the language of msgs.
+func (msgs Messages) SsoWaitingDetail() string { return msgs.text(textSsoWaitingDetail) }
+
+// SsoOpenBrowserAgain says "Open browser again"
+// in the language the app shows under cx.
+func SsoOpenBrowserAgain(cx *core.Scope) string { return For(cx).SsoOpenBrowserAgain() }
+
+// SsoOpenBrowserAgain is the package's SsoOpenBrowserAgain in the language of msgs.
+func (msgs Messages) SsoOpenBrowserAgain() string { return msgs.text(textSsoOpenBrowserAgain) }
 
 // TogglePasswordVisibility says "Toggle password visibility"
 // in the language the app shows under cx.
@@ -26436,6 +26746,66 @@ func ErrorDifferentAccount(cx *core.Scope) string { return For(cx).ErrorDifferen
 
 // ErrorDifferentAccount is the package's ErrorDifferentAccount in the language of msgs.
 func (msgs Messages) ErrorDifferentAccount() string { return msgs.text(textErrorDifferentAccount) }
+
+// ErrorSSOMasterPasswordRequired says "This SSO account does not have a master password yet. Set one in the web vault first."
+// in the language the app shows under cx.
+func ErrorSSOMasterPasswordRequired(cx *core.Scope) string {
+	return For(cx).ErrorSSOMasterPasswordRequired()
+}
+
+// ErrorSSOMasterPasswordRequired is the package's ErrorSSOMasterPasswordRequired in the language of msgs.
+func (msgs Messages) ErrorSSOMasterPasswordRequired() string {
+	return msgs.text(textErrorSSOMasterPasswordRequired)
+}
+
+// ErrorSSOForcePasswordReset says "Your organization requires a master password reset. Reset your master password in the web vault first."
+// in the language the app shows under cx.
+func ErrorSSOForcePasswordReset(cx *core.Scope) string { return For(cx).ErrorSSOForcePasswordReset() }
+
+// ErrorSSOForcePasswordReset is the package's ErrorSSOForcePasswordReset in the language of msgs.
+func (msgs Messages) ErrorSSOForcePasswordReset() string {
+	return msgs.text(textErrorSSOForcePasswordReset)
+}
+
+// ErrorSSOKeyConnectorUnsupported says "SSO with Key Connector is not supported yet."
+// in the language the app shows under cx.
+func ErrorSSOKeyConnectorUnsupported(cx *core.Scope) string {
+	return For(cx).ErrorSSOKeyConnectorUnsupported()
+}
+
+// ErrorSSOKeyConnectorUnsupported is the package's ErrorSSOKeyConnectorUnsupported in the language of msgs.
+func (msgs Messages) ErrorSSOKeyConnectorUnsupported() string {
+	return msgs.text(textErrorSSOKeyConnectorUnsupported)
+}
+
+// ErrorSSOTrustedDeviceUnsupported says "SSO with Trusted Device Encryption is not supported yet."
+// in the language the app shows under cx.
+func ErrorSSOTrustedDeviceUnsupported(cx *core.Scope) string {
+	return For(cx).ErrorSSOTrustedDeviceUnsupported()
+}
+
+// ErrorSSOTrustedDeviceUnsupported is the package's ErrorSSOTrustedDeviceUnsupported in the language of msgs.
+func (msgs Messages) ErrorSSOTrustedDeviceUnsupported() string {
+	return msgs.text(textErrorSSOTrustedDeviceUnsupported)
+}
+
+// ErrorSSOCallbackPortUnavailable says "Could not start the local SSO callback listener (ports 8065–8070 are in use)."
+// in the language the app shows under cx.
+func ErrorSSOCallbackPortUnavailable(cx *core.Scope) string {
+	return For(cx).ErrorSSOCallbackPortUnavailable()
+}
+
+// ErrorSSOCallbackPortUnavailable is the package's ErrorSSOCallbackPortUnavailable in the language of msgs.
+func (msgs Messages) ErrorSSOCallbackPortUnavailable() string {
+	return msgs.text(textErrorSSOCallbackPortUnavailable)
+}
+
+// ErrorSSOStateMismatch says "The SSO callback could not be verified. Try signing in again."
+// in the language the app shows under cx.
+func ErrorSSOStateMismatch(cx *core.Scope) string { return For(cx).ErrorSSOStateMismatch() }
+
+// ErrorSSOStateMismatch is the package's ErrorSSOStateMismatch in the language of msgs.
+func (msgs Messages) ErrorSSOStateMismatch() string { return msgs.text(textErrorSSOStateMismatch) }
 
 // ErrorAccountChanged says "The account changed since this was confirmed. Try again."
 // in the language the app shows under cx.

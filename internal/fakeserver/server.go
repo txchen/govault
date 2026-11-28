@@ -4,11 +4,13 @@
 package fakeserver
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -70,6 +72,30 @@ type Config struct {
 	// login from a device the server does not know must send this code in
 	// newDeviceOtp (DeviceValidator.cs in bitwarden/server).
 	NewDeviceOTP string
+	// SSOEnabled turns on Vaultwarden's OIDC SSO endpoints and the
+	// authorization_code token grant.
+	SSOEnabled bool
+	// SSOOnly makes password logins fail with Vaultwarden's 400 "SSO
+	// sign-in is required" when SSOEnabled is also set.
+	SSOOnly bool
+	// SSODecryptionMode shapes UserDecryptionOptions on SSO logins: ""
+	// (master password), "no_password", "key_connector", "trusted_device",
+	// or "force_reset".
+	SSODecryptionMode string
+	// BitwardenSSOEmail2FA makes SSO email 2FA follow Bitwarden Server
+	// (top-level Email + SsoEmail2faSessionToken) instead of Vaultwarden
+	// (tokenless device-only send-email-login).
+	BitwardenSSOEmail2FA bool
+	// StrictRefresh enforces issuing client_id matching and single-use
+	// refresh token rotation on grant_type=refresh_token.
+	StrictRefresh bool
+}
+
+type ssoCodeRecord struct {
+	challenge   string
+	redirectURI string
+	clientID    string
+	email       string
 }
 
 // Server is a running fake server.
@@ -80,11 +106,13 @@ type Server struct {
 	mu            sync.Mutex
 	http          *httptest.Server
 	email         string
+	kdfSalt       string
 	keys          *keys
 	attachment    []byte
 	requests      []Request
 	tokens        map[string]string // access token -> grant type
-	refresh       map[string]bool
+	refresh       map[string]string // refresh token -> issuing client_id
+	ssoCodes      map[string]ssoCodeRecord
 	rejectNext    bool
 	tokenSeq      int
 	emailSends    int
@@ -113,6 +141,11 @@ func WithKDFIterations(n int) Option { return func(s *Server) { s.kdfIterations 
 // whose base URL has one.
 func WithPrefix(prefix string) Option { return func(s *Server) { s.prefix = prefix } }
 
+// WithCustomSalt configures a verbatim KDF salt distinct from the account's
+// normalized email (as Bitwarden accounts with an opaque or mixed-case salt
+// report in MasterPasswordUnlock.Salt).
+func WithCustomSalt(salt string) Option { return func(s *Server) { s.kdfSalt = salt } }
+
 // New starts a fake server with the fixture vault, over plain HTTP.
 func New(opts ...Option) *Server { return start(false, opts) }
 
@@ -126,13 +159,18 @@ func start(useTLS bool, opts []Option) *Server {
 		email:         Email,
 		kdfIterations: DefaultKDFIterations,
 		tokens:        map[string]string{},
-		refresh:       map[string]bool{},
+		refresh:       map[string]string{},
+		ssoCodes:      map[string]ssoCodeRecord{},
 		revision:      revised,
 	}
 	for _, o := range opts {
 		o(s)
 	}
-	s.keys = newKeys(Email, Password, s.kdfIterations)
+	salt := s.kdfSalt
+	if salt == "" {
+		salt = crypto.NormalizeEmail(s.email)
+	}
+	s.keys = newKeys(salt, Password, s.kdfIterations)
 	s.attachment = s.keys.attachmentData()
 	s.blobs = map[string][]byte{AttachmentID: s.attachment}
 	// The vault is seeded under the lock once the address is known, before
@@ -250,11 +288,16 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		})
 	case r.Method == http.MethodPost && path == "/identity/connect/token":
 		s.token(w, r)
+	case r.Method == http.MethodGet && path == "/identity/sso/prevalidate":
+		if !s.config().SSOEnabled {
+			writeJSON(w, 400, obj{"error": "invalid_request", "ErrorModel": obj{"Message": "SSO sign-in is not available", "Object": "error"}})
+			return
+		}
+		writeJSON(w, 200, obj{"token": "fake-sso-prevalidate-token"})
+	case r.Method == http.MethodGet && path == "/identity/connect/authorize":
+		s.authorize(w, r)
 	case r.Method == http.MethodPost && path == "/api/two-factor/send-email-login":
-		s.mu.Lock()
-		s.emailSends++
-		s.mu.Unlock()
-		w.WriteHeader(200)
+		s.sendEmailTwoFactor(w, r)
 	case r.Method == http.MethodPost && path == "/api/accounts/resend-new-device-otp":
 		// Bitwarden answers success whatever the secret, so a resend
 		// cannot test a password.
@@ -374,10 +417,54 @@ func (s *Server) attachmentData(w http.ResponseWriter, path string) {
 	_, _ = w.Write(data)
 }
 
+// IssueSSOCode registers a PKCE code challenge as if the browser completed
+// /identity/connect/authorize and returns the authorization code.
+func (s *Server) IssueSSOCode(challenge, redirectURI, clientID string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tokenSeq++
+	code := "sso-code-" + strconv.Itoa(s.tokenSeq)
+	s.ssoCodes[code] = ssoCodeRecord{
+		challenge:   challenge,
+		redirectURI: redirectURI,
+		clientID:    clientID,
+		email:       s.email,
+	}
+	return code
+}
+
+func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
+	if !s.config().SSOEnabled {
+		writeJSON(w, 400, obj{"error": "invalid_request", "ErrorModel": obj{"Message": "SSO sign-in is not available", "Object": "error"}})
+		return
+	}
+	q := r.URL.Query()
+	if q.Get("code_challenge_method") != "S256" {
+		writeJSON(w, 400, obj{"error": "invalid_request", "ErrorModel": obj{"Message": "Unsupported code challenge method", "Object": "error"}})
+		return
+	}
+	redirectURI := q.Get("redirect_uri")
+	u, err := url.Parse(redirectURI)
+	if err != nil || u.Scheme != "http" || u.Hostname() != "localhost" {
+		writeJSON(w, 400, obj{"error": "invalid_request", "ErrorModel": obj{"Message": "Unsupported redirect uri", "Object": "error"}})
+		return
+	}
+	code := s.IssueSSOCode(q.Get("code_challenge"), redirectURI, q.Get("client_id"))
+	rq := u.Query()
+	rq.Set("code", code)
+	rq.Set("state", q.Get("state"))
+	u.RawQuery = rq.Encode()
+	http.Redirect(w, r, u.String(), http.StatusTemporaryRedirect)
+}
+
 func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 	f := r.PostForm
 	switch f.Get("grant_type") {
 	case "password":
+		if cfg := s.config(); cfg.SSOEnabled && cfg.SSOOnly {
+			writeJSON(w, 400, obj{"error": "invalid_grant", "error_description": "SSO sign-in is required", "ErrorModel": obj{"Message": "SSO sign-in is required", "Object": "error"}})
+			return
+		}
 		if !strings.EqualFold(f.Get("username"), s.email) || f.Get("password") != crypto.HashMasterPasswordForServer(s.keys.masterKey, []byte(Password)) {
 			writeJSON(w, 400, obj{"error": "invalid_grant", "error_description": "invalid_username_or_password", "ErrorModel": obj{"Message": "Username or password is incorrect. Try again", "Object": "error"}})
 			return
@@ -386,22 +473,93 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 			provider, _ := strconv.Atoi(f.Get("twoFactorProvider"))
 			code, ok := tf[provider]
 			if f.Get("twoFactorToken") == "" || !ok || code != f.Get("twoFactorToken") {
-				s.twoFactorChallenge(w, f.Get("twoFactorToken") != "")
+				s.twoFactorChallenge(w, f.Get("twoFactorToken") != "", false)
 				return
 			}
 		} else if !s.verifyDevice(w, f.Get("deviceIdentifier"), f.Get("newDeviceOtp")) {
 			return
 		}
-		writeJSON(w, 200, s.issue("password", true))
-	case "refresh_token":
+		writeJSON(w, 200, s.issue("password", f.Get("client_id"), true))
+	case "authorization_code":
+		cfg := s.config()
+		if !cfg.SSOEnabled {
+			writeJSON(w, 400, obj{"error": "invalid_grant", "ErrorModel": obj{"Message": "SSO sign-in is not available", "Object": "error"}})
+			return
+		}
+		code := f.Get("code")
+		verifier := f.Get("code_verifier")
+		redirectURI := f.Get("redirect_uri")
 		s.mu.Lock()
-		ok := s.refresh[f.Get("refresh_token")]
+		rec, ok := s.ssoCodes[code]
+		s.mu.Unlock()
+		if !ok || verifier == "" {
+			writeJSON(w, 400, obj{"error": "invalid_grant", "ErrorModel": obj{"Message": "Invalid code cannot retrieve sso auth", "Object": "error"}})
+			return
+		}
+		sum := sha256.Sum256([]byte(verifier))
+		if base64.RawURLEncoding.EncodeToString(sum[:]) != rec.challenge {
+			writeJSON(w, 400, obj{"error": "invalid_grant", "ErrorModel": obj{"Message": "PKCE code verifier mismatch", "Object": "error"}})
+			return
+		}
+		if rec.redirectURI != "" && redirectURI != "" && redirectURI != rec.redirectURI {
+			writeJSON(w, 400, obj{"error": "invalid_grant", "ErrorModel": obj{"Message": "Redirect URI mismatch", "Object": "error"}})
+			return
+		}
+		// Like Vaultwarden src/sso.rs, the code remains redeemable for a 2FA
+		// retry and is deleted only after 2FA succeeds.
+		if tf := cfg.TwoFactor; len(tf) > 0 {
+			provider, _ := strconv.Atoi(f.Get("twoFactorProvider"))
+			want, has := tf[provider]
+			if f.Get("twoFactorToken") == "" || !has || want != f.Get("twoFactorToken") {
+				s.twoFactorChallenge(w, f.Get("twoFactorToken") != "", true)
+				return
+			}
+		}
+		s.mu.Lock()
+		delete(s.ssoCodes, code)
+		s.mu.Unlock()
+		resp := s.issue("authorization_code", f.Get("client_id"), true)
+		switch cfg.SSODecryptionMode {
+		case "no_password":
+			delete(resp, "Key")
+			resp["UserDecryptionOptions"] = obj{"HasMasterPassword": false, "MasterPasswordUnlock": nil, "Object": "userDecryptionOptions"}
+		case "key_connector":
+			delete(resp, "Key")
+			resp["UserDecryptionOptions"] = obj{
+				"HasMasterPassword":  false,
+				"KeyConnectorOption": obj{"KeyConnectorUrl": "https://kc.example.com"},
+				"Object":             "userDecryptionOptions",
+			}
+		case "trusted_device":
+			delete(resp, "Key")
+			resp["UserDecryptionOptions"] = obj{
+				"HasMasterPassword":   false,
+				"TrustedDeviceOption": obj{"HasAdminApproval": true},
+				"Object":              "userDecryptionOptions",
+			}
+		case "force_reset":
+			resp["ForcePasswordReset"] = true
+		}
+		writeJSON(w, 200, resp)
+	case "refresh_token":
+		rt := f.Get("refresh_token")
+		reqClient := f.Get("client_id")
+		cfg := s.config()
+		s.mu.Lock()
+		issuedClient, ok := s.refresh[rt]
+		if ok && cfg.StrictRefresh {
+			if issuedClient != "" && reqClient != issuedClient {
+				ok = false
+			} else {
+				delete(s.refresh, rt)
+			}
+		}
 		s.mu.Unlock()
 		if !ok {
 			writeJSON(w, 400, obj{"error": "invalid_grant", "error_description": "Invalid refresh token"})
 			return
 		}
-		writeJSON(w, 200, s.issue("refresh_token", true))
+		writeJSON(w, 200, s.issue("refresh_token", reqClient, true))
 	case "client_credentials":
 		if f.Get("scope") != "api" || f.Get("client_id") != ClientID || f.Get("client_secret") != ClientSecret {
 			writeJSON(w, 400, obj{"error": "invalid_client", "error_description": "invalid_client"})
@@ -411,7 +569,7 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 400, obj{"error": "invalid_request", "error_description": "device_identifier cannot be blank"})
 			return
 		}
-		writeJSON(w, 200, s.issue("client_credentials", false))
+		writeJSON(w, 200, s.issue("client_credentials", f.Get("client_id"), false))
 	default:
 		writeJSON(w, 400, obj{"error": "unsupported_grant_type"})
 	}
@@ -448,12 +606,59 @@ func (s *Server) GrantCount(grantType string) int {
 	return s.Count(func(r Request) bool { return r.Path == "/identity/connect/token" && r.Form["grant_type"] == grantType })
 }
 
-func (s *Server) twoFactorChallenge(w http.ResponseWriter, wrongCode bool) {
-	if wrongCode {
-		writeJSON(w, 400, obj{"error": "invalid_grant", "error_description": "Two factor required.", "ErrorModel": obj{"Message": "Invalid TOTP code", "Object": "error"}, "TwoFactorProviders": s.providerList(), "TwoFactorProviders2": s.providerData()})
-		return
+func (s *Server) sendEmailTwoFactor(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Email                   string `json:"email"`
+		MasterPasswordHash      string `json:"masterPasswordHash"`
+		DeviceIdentifier        string `json:"deviceIdentifier"`
+		SSOEmail2FASessionToken string `json:"ssoEmail2faSessionToken"`
 	}
-	writeJSON(w, 400, obj{"error": "invalid_grant", "error_description": "Two factor required.", "TwoFactorProviders": s.providerList(), "TwoFactorProviders2": s.providerData(), "MasterPasswordPolicy": obj{"Object": "masterPasswordPolicy"}})
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	if body.MasterPasswordHash == "" {
+		cfg := s.config()
+		if cfg.BitwardenSSOEmail2FA {
+			if !strings.EqualFold(body.Email, s.email) || body.SSOEmail2FASessionToken != "fake-sso-email-token" {
+				writeJSON(w, 400, obj{"ErrorModel": obj{"Message": "Invalid SSO email 2FA request", "Object": "error"}})
+				return
+			}
+		} else {
+			// Vaultwarden 1.37.4+ rejects an email without a password hash and
+			// accepts a device-only SSO send-email-login request.
+			if body.Email != "" {
+				writeJSON(w, 400, obj{"ErrorModel": obj{"Message": "No password hash has been submitted.", "Object": "error"}})
+				return
+			}
+			if body.DeviceIdentifier == "" && r.Header.Get("Device-Identifier") == "" {
+				writeJSON(w, 400, obj{"ErrorModel": obj{"Message": "Missing device identifier", "Object": "error"}})
+				return
+			}
+		}
+	}
+	s.mu.Lock()
+	s.emailSends++
+	s.mu.Unlock()
+	w.WriteHeader(200)
+}
+
+func (s *Server) twoFactorChallenge(w http.ResponseWriter, wrongCode, sso bool) {
+	body := obj{
+		"error":               "invalid_grant",
+		"error_description":   "Two factor required.",
+		"TwoFactorProviders":  s.providerList(),
+		"TwoFactorProviders2": s.providerData(),
+	}
+	if wrongCode {
+		body["ErrorModel"] = obj{"Message": "Invalid TOTP code", "Object": "error"}
+	} else {
+		body["MasterPasswordPolicy"] = obj{"Object": "masterPasswordPolicy"}
+	}
+	if sso && s.config().BitwardenSSOEmail2FA {
+		if _, hasEmail := s.config().TwoFactor[1]; hasEmail {
+			body["Email"] = s.email
+			body["SsoEmail2faSessionToken"] = "fake-sso-email-token"
+		}
+	}
+	writeJSON(w, 400, body)
 }
 
 func (s *Server) providerList() []string {
@@ -482,7 +687,7 @@ func (s *Server) providerData() obj {
 	return out
 }
 
-func (s *Server) issue(grant string, withRefresh bool) obj {
+func (s *Server) issue(grant, reqClientID string, withRefresh bool) obj {
 	s.mu.Lock()
 	s.tokenSeq++
 	seq := s.tokenSeq
@@ -490,7 +695,10 @@ func (s *Server) issue(grant string, withRefresh bool) obj {
 	s.mu.Unlock()
 	lifetime := cfg.TokenLifetime
 
-	clientID := "cli"
+	clientID := reqClientID
+	if clientID == "" {
+		clientID = "cli"
+	}
 	if grant == "client_credentials" {
 		clientID = ClientID
 	}
@@ -514,6 +722,10 @@ func (s *Server) issue(grant string, withRefresh bool) obj {
 	s.tokens[access] = grant
 	s.mu.Unlock()
 	k := s.keys
+	salt := s.kdfSalt
+	if salt == "" {
+		salt = s.email
+	}
 	resp := obj{
 		"access_token": access, "expires_in": int(lifetime.Seconds()), "token_type": "Bearer",
 		"Key": k.protectedUserKey(), "PrivateKey": k.encPrivateKey(),
@@ -529,7 +741,7 @@ func (s *Server) issue(grant string, withRefresh bool) obj {
 				"Kdf":                       obj{"KdfType": 0, "Iterations": s.kdfIterations, "Memory": nil, "Parallelism": nil},
 				"MasterKeyEncryptedUserKey": k.protectedUserKey(),
 				"MasterKeyWrappedUserKey":   k.protectedUserKey(),
-				"Salt":                      s.email,
+				"Salt":                      salt,
 			},
 			"Object": "userDecryptionOptions",
 		},
@@ -537,7 +749,7 @@ func (s *Server) issue(grant string, withRefresh bool) obj {
 	if withRefresh {
 		rt := "refresh-" + strconv.Itoa(seq)
 		s.mu.Lock()
-		s.refresh[rt] = true
+		s.refresh[rt] = clientID
 		s.mu.Unlock()
 		resp["refresh_token"] = rt
 	} else {

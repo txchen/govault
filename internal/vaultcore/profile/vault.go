@@ -42,7 +42,7 @@ func (p *Profile) Unlock(ctx context.Context, req UnlockRequest) (string, error)
 	if err != nil {
 		return "", err
 	}
-	mk, err := crypto.DeriveMasterKey(req.Password, snap.Email, snap.KDF)
+	mk, err := crypto.DeriveKeyFromPassword(req.Password, snap.EffectiveKDFSalt(), snap.KDF)
 	if err != nil {
 		return "", err
 	}

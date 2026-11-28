@@ -43,6 +43,12 @@ signIn: Anmelden
 backToUnlock: Zurück zum Entsperren
 signInFootnote: Ende-zu-Ende-verschlüsselt. Dein Master-Passwort verlässt dieses Gerät nie.
 signInFieldsRequired: Server-URL, E-Mail und Master-Passwort sind erforderlich.
+signInWithSSO: Mit SSO anmelden
+orSignInWith: oder
+ssoServerRequired: Für die Anmeldung mit SSO ist eine Server-URL erforderlich.
+ssoWaitingTitle: Anmeldung im Browser abschließen
+ssoWaitingDetail: Schließe das Single Sign-On im geöffneten Browserfenster ab und kehre dann zu GoVault zurück.
+ssoOpenBrowserAgain: Browser erneut öffnen
 togglePasswordVisibility: Passwort ein- oder ausblenden
 
 # Two-step login
@@ -698,6 +704,12 @@ errorUnsupportedUpload: Der Server verlangt einen Anhang-Upload, den GoVault nic
 errorServerMismatch: Die gespeicherte Anmeldung gehört zu einem anderen Server als diese Tresorkopie. Melde dich erneut an.
 errorSignInRequired: Zum Synchronisieren erneut anmelden. Bis dahin ist dein Tresor offline verfügbar.
 errorDifferentAccount: Diese Anmeldung gehört zu einem anderen Konto als der Tresor auf diesem Gerät. Melde dich zuerst ab, um das Konto zu wechseln.
+errorSSOMasterPasswordRequired: Dieses SSO-Konto hat noch kein Master-Passwort. Lege zuerst im Web-Tresor eines fest.
+errorSSOForcePasswordReset: Deine Organisation erfordert das Zurücksetzen des Master-Passworts. Setze es zuerst im Web-Tresor zurück.
+errorSSOKeyConnectorUnsupported: SSO mit Key Connector wird noch nicht unterstützt.
+errorSSOTrustedDeviceUnsupported: SSO mit Trusted Device Encryption wird noch nicht unterstützt.
+errorSSOCallbackPortUnavailable: Der lokale SSO-Callback-Listener konnte nicht gestartet werden (Ports 8065–8070 sind belegt).
+errorSSOStateMismatch: Der SSO-Callback konnte nicht überprüft werden. Versuche dich erneut anzumelden.
 errorAccountChanged: Das Konto hat sich seit der Bestätigung geändert. Versuche es erneut.
 errorSnapshotNotUpdated: Der Server hat die Änderung, aber die lokale Kopie konnte nicht aktualisiert werden. Synchronisiere zum Aktualisieren.
 errorSealedField: Dieser Eintrag enthält verschlüsselte Daten, die GoVault nicht auf einen neuen Schlüssel kopieren kann.

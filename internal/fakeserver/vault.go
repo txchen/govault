@@ -92,8 +92,8 @@ func parsePriv(b64 string) *rsa.PrivateKey {
 	return k.(*rsa.PrivateKey)
 }
 
-func newKeys(email, password string, iterations int) *keys {
-	mk, err := crypto.DeriveMasterKey([]byte(password), email, crypto.KDFConfig{Type: crypto.KDFPBKDF2, Iterations: uint32(iterations)})
+func newKeys(salt, password string, iterations int) *keys {
+	mk, err := crypto.DeriveKeyFromPassword([]byte(password), salt, crypto.KDFConfig{Type: crypto.KDFPBKDF2, Iterations: uint32(iterations)})
 	if err != nil {
 		panic(err)
 	}

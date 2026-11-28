@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"net/url"
@@ -309,7 +310,7 @@ func (a *app) login(p *parsed) response {
 		return failure("You are already logged in as " + email + ".")
 	}
 	if p.has("sso") {
-		return failure("gv does not support SSO login; log in with your master password or an API key.")
+		return a.loginSSO(prof, p)
 	}
 	if p.has("apikey") {
 		return a.loginAPIKey(prof, p)
@@ -537,4 +538,186 @@ func (a *app) loginAPIKey(prof *profile.Profile, p *parsed) response {
 	// bw prints a session key here too, though it unlocks nothing until
 	// `unlock`; gv does the same so scripts parse the same output.
 	return success(sessionMessage("You are logged in!", profile.RandomSessionKey()))
+}
+
+func (a *app) loginSSO(prof *profile.Profile, p *parsed) response {
+	if a.flags.noInteraction {
+		return failure("SSO login requires interactive browser authentication.")
+	}
+	method := -1
+	if m, ok := p.opt("method"); ok {
+		n, err := strconv.Atoi(strings.TrimSpace(m))
+		if err != nil || n < 0 || n > 8 {
+			return failure("Invalid two-step login method.")
+		}
+		method = n
+	}
+	codeFlag, hasCode := p.opt("code")
+	if hasCode && api.TwoFactorProvider(method) == api.TwoFactorYubiKey {
+		otp, ok := api.NormalizeYubiKeyOTP(codeFlag)
+		if !ok {
+			return failure(invalidYubiKeyOTP)
+		}
+		codeFlag = otp
+	}
+
+	// Capture server endpoints, web vault URL, device ID, and generation
+	// before opening the browser so a concurrent `config server` cannot
+	// redirect the code and verifier to another identity server.
+	login, err := prof.PrepareSSOLogin()
+	if err != nil {
+		return loginFailure(err, prof)
+	}
+	pkce, err := api.NewSSOPKCE()
+	if err != nil {
+		return errResponse(err)
+	}
+	portMin, portMax := api.SSOCallbackPortMin, api.SSOCallbackPortMax
+	if a.env.SSOCallbackPorts != [2]int{} {
+		portMin, portMax = a.env.SSOCallbackPorts[0], a.env.SSOCallbackPorts[1]
+	}
+	cb, err := api.StartSSOCallback(pkce.State, portMin, portMax)
+	if err != nil {
+		return errResponse(err)
+	}
+	defer cb.Close()
+
+	orgID := strings.TrimSpace(optValue(p, "sso"))
+	ssoURL, err := api.BuildSSOURL(login.WebVaultURL(), "cli", cb.RedirectURI(), pkce, "", orgID)
+	if err != nil {
+		return errResponse(err)
+	}
+	openURL := a.env.OpenURL
+	if openURL == nil {
+		openURL = func(raw string) error { return openBrowserURL(a.env.GOOS, raw) }
+	}
+	if !a.flags.quiet {
+		a.warn("Opening browser for SSO login:\n" + ssoURL)
+	}
+	if err := openURL(ssoURL); err != nil {
+		if a.flags.quiet {
+			a.warn("Could not open browser automatically; open this URL to continue:\n" + ssoURL)
+		} else {
+			a.warn("Could not open browser automatically; open the URL above to continue.")
+		}
+	}
+
+	waitCtx, cancelWait := context.WithTimeout(a.ctx, api.DefaultSSOWaitTimeout)
+	defer cancelWait()
+	res, err := cb.Wait(waitCtx)
+	if err != nil {
+		return errResponse(err)
+	}
+	login.SetCallback(res.Code, pkce.CodeVerifier, cb.RedirectURI())
+
+	var twoFactor *api.TwoFactorLogin
+	if hasCode && method >= 0 {
+		twoFactor = &api.TwoFactorLogin{Provider: api.TwoFactorProvider(method), Token: codeFlag}
+	}
+	err = login.Authenticate(a.ctx, twoFactor)
+	var tfErr *api.TwoFactorRequiredError
+	if errors.As(err, &tfErr) && twoFactor != nil {
+		return failure("Login failed.")
+	}
+	if errors.As(err, &tfErr) {
+		var offered []int
+		for i, tp := range twoFactorProviders {
+			if tfErr.Challenge.Has(tp.p) {
+				offered = append(offered, i)
+			}
+		}
+		if len(offered) == 0 {
+			return failure("No providers available for this client.")
+		}
+		chosen := -1
+		for _, i := range offered {
+			if int(twoFactorProviders[i].p) == method {
+				chosen = i
+			}
+		}
+		if chosen < 0 {
+			switch {
+			case len(offered) == 1:
+				chosen = offered[0]
+			case a.canPrompt():
+				chosen = a.chooseProvider(offered)
+				if chosen == -2 {
+					return failure("Login failed.")
+				}
+			}
+			if chosen < 0 {
+				return failure("Login failed. No provider selected.")
+			}
+		}
+		provider := twoFactorProviders[chosen].p
+		if !hasCode && provider == api.TwoFactorEmail {
+			if err := login.SendEmailCode(a.ctx, tfErr.Challenge.Email, tfErr.Challenge.SSOEmail2FASessionToken); err != nil {
+				return loginFailure(err, prof)
+			}
+		}
+		code := codeFlag
+		if !hasCode {
+			if a.canPrompt() {
+				code, _ = a.env.Terminal.ReadLine("Two-step login code:")
+			}
+			if code == "" {
+				return failure("Code is required.")
+			}
+		}
+		if provider == api.TwoFactorYubiKey {
+			otp, ok := api.NormalizeYubiKeyOTP(code)
+			if !ok {
+				return failure(invalidYubiKeyOTP)
+			}
+			code = otp
+		}
+		twoFactor = &api.TwoFactorLogin{Provider: provider, Token: code}
+		err = login.Authenticate(a.ctx, twoFactor)
+		if errors.As(err, &tfErr) {
+			return failure("Login failed.")
+		}
+	}
+	if err != nil {
+		return loginFailure(err, prof)
+	}
+
+	// On systems without a credential store, sealing the refresh token needs
+	// the vault's user key. Require a master password before committing so an
+	// SSO login never commits an account whose refresh token was discarded.
+	var pw []byte
+	if !prof.HasKeyring() {
+		if file, ok := p.opt("passwordfile"); ok && file != "" {
+			line, err := readFirstLine(file)
+			if err != nil {
+				return failure("Cannot read the password file: " + err.Error())
+			}
+			pw = []byte(line)
+		} else if name, ok := p.opt("passwordenv"); ok && name != "" && a.getenv(name) != "" {
+			pw = []byte(a.getenv(name))
+		} else if a.canPrompt() {
+			line, err := a.env.Terminal.ReadSecret("Master password:")
+			if err != nil {
+				return failure("Master password is required to save SSO credentials without a credential store.")
+			}
+			pw = []byte(line)
+		}
+		if len(pw) == 0 {
+			return failure("Master password is required to save SSO credentials without a credential store.")
+		}
+		defer crypto.ZeroBytes(pw)
+	}
+
+	key, err := login.Commit(a.ctx, pw)
+	if errors.Is(err, profile.ErrInvalidPassword) {
+		return failure(invalidPasswordMessage)
+	}
+	if err != nil {
+		return loginFailure(err, prof)
+	}
+	if key != "" {
+		a.flags.session = key
+		return success(sessionMessage("You are logged in!", key))
+	}
+	text := "\nTo unlock your vault, use the `unlock` command. ex:\n$ gv unlock"
+	return success(message{title: "You are logged in!", text: &text})
 }

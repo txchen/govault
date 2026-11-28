@@ -43,6 +43,12 @@ signIn: Se connecter
 backToUnlock: Retour au déverrouillage
 signInFootnote: Chiffrement de bout en bout. Votre mot de passe principal ne quitte jamais cet appareil.
 signInFieldsRequired: L’URL du serveur, l’adresse e-mail et le mot de passe principal sont requis.
+signInWithSSO: Se connecter avec SSO
+orSignInWith: ou
+ssoServerRequired: L’URL du serveur est requise pour la connexion SSO.
+ssoWaitingTitle: Terminez la connexion dans votre navigateur
+ssoWaitingDetail: Terminez l’authentification unique dans la fenêtre de navigateur ouverte, puis revenez dans GoVault.
+ssoOpenBrowserAgain: Rouvrir le navigateur
 togglePasswordVisibility: Afficher ou masquer le mot de passe
 
 # Two-step login
@@ -698,6 +704,12 @@ errorUnsupportedUpload: Le serveur a demandé un envoi de pièce jointe non pris
 errorServerMismatch: La connexion enregistrée correspond à un autre serveur que cette copie du coffre. Reconnectez-vous.
 errorSignInRequired: Reconnectez-vous pour synchroniser. Votre coffre reste accessible hors ligne en attendant.
 errorDifferentAccount: Cette connexion correspond à un autre compte que le coffre sur cet appareil. Déconnectez-vous d’abord pour changer de compte.
+errorSSOMasterPasswordRequired: Ce compte SSO n’a pas encore de mot de passe principal. Définissez-en un d’abord dans le coffre web.
+errorSSOForcePasswordReset: Votre organisation exige la réinitialisation du mot de passe principal. Réinitialisez-le d’abord dans le coffre web.
+errorSSOKeyConnectorUnsupported: La connexion SSO avec Key Connector n’est pas encore prise en charge.
+errorSSOTrustedDeviceUnsupported: La connexion SSO avec chiffrement d’appareil de confiance n’est pas encore prise en charge.
+errorSSOCallbackPortUnavailable: Impossible de démarrer l’écoute locale SSO (les ports 8065–8070 sont utilisés).
+errorSSOStateMismatch: Impossible de vérifier le retour SSO. Essayez de vous reconnecter.
 errorAccountChanged: Le compte a changé depuis la confirmation. Réessayez.
 errorSnapshotNotUpdated: Le serveur a enregistré la modification, mais la copie locale n’a pas pu être mise à jour. Synchronisez pour actualiser.
 errorSealedField: Cet élément contient des données chiffrées que GoVault ne peut pas copier vers une nouvelle clé.

@@ -25,14 +25,30 @@ type Snapshot struct {
 	AccountID     string           `json:"accountId"`
 	ServerURL     string           `json:"serverUrl"`
 	Email         string           `json:"email"`
-	KDF           crypto.KDFConfig `json:"kdf"`
-	ProtectedKey  string           `json:"protectedKey"`
-	RevisionDate  time.Time        `json:"revisionDate"`
-	LastSyncAt    time.Time        `json:"lastSyncAt"`
-	RawSyncJSON   json.RawMessage  `json:"rawSyncJson"`
+	// KDFSalt is the verbatim salt for master-password key derivation when
+	// the server supplied one (MasterPasswordUnlock.Salt), which may differ
+	// from Email or be case-sensitive. Empty falls back to normalized Email.
+	KDFSalt      string           `json:"kdfSalt,omitempty"`
+	KDF          crypto.KDFConfig `json:"kdf"`
+	ProtectedKey string           `json:"protectedKey"`
+	RevisionDate time.Time        `json:"revisionDate"`
+	LastSyncAt   time.Time        `json:"lastSyncAt"`
+	RawSyncJSON  json.RawMessage  `json:"rawSyncJson"`
 	// Sequence counts the snapshots a profile store saved, so a writer can
 	// tell whether another one committed since it loaded.
 	Sequence uint64 `json:"sequence,omitempty"`
+}
+
+// EffectiveKDFSalt returns the salt to pass verbatim to
+// crypto.DeriveKeyFromPassword: KDFSalt when stored, else normalized Email.
+func (s *Snapshot) EffectiveKDFSalt() string {
+	if s != nil && s.KDFSalt != "" {
+		return s.KDFSalt
+	}
+	if s == nil {
+		return ""
+	}
+	return crypto.NormalizeEmail(s.Email)
 }
 
 type Store interface {

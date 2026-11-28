@@ -141,8 +141,15 @@ func (s *Service) Login(_ context.Context, req state.LoginRequest) error {
 	return nil
 }
 
-func (s *Service) SendEmailTwoFactorCode(context.Context, state.LoginRequest) error { return nil }
-func (s *Service) ResendNewDeviceOTP(context.Context, state.LoginRequest) error     { return nil }
+func (s *Service) LoginSSO(_ context.Context, _ state.SSOLoginRequest) error {
+	time.Sleep(350 * time.Millisecond)
+	s.setStatus(state.StatusLocked)
+	return nil
+}
+
+func (s *Service) SendEmailTwoFactorCode(context.Context, state.LoginRequest) error     { return nil }
+func (s *Service) SendEmailTwoFactorCodeSSO(context.Context, string, string, string) error { return nil }
+func (s *Service) ResendNewDeviceOTP(context.Context, state.LoginRequest) error         { return nil }
 
 func (s *Service) UnlockWithPassword(_ context.Context, pw []byte) error {
 	if len(pw) == 0 {
